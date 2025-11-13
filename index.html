@@ -3,19 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale-1.0">
-    <title>Flappy Bird (Dev)</title>
+    <title>My Flappy Aljo</title>
     
     <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Load Tone.js for audio -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    
     <style>
         /* Use Inter font */
         body {
             font-family: 'Inter', sans-serif;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
+            margin: 0;
+            padding: 0;
         }
         /* Ensure canvas is crisp on all displays */
         canvas {
@@ -25,46 +32,230 @@
             image-rendering: crisp-edges;
             touch-action: none; /* Disable touch scrolling on canvas */
         }
+        
+        /* Responsive layout */
+        .game-wrapper {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+        }
+        
+        .game-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            max-height: 100%;
+        }
+        
+        /* Fullscreen on desktop, portrait on mobile */
+        @media (min-width: 768px) {
+            .game-title {
+                font-size: 2.5rem;
+                padding: 1rem;
+            }
+            .canvas-container {
+                max-width: 100%;
+                width: 100%;
+            }
+        }
+        
+        @media (max-width: 767px) {
+            .game-title {
+                font-size: 1.5rem;
+                padding: 0.5rem;
+            }
+            .canvas-container {
+                max-width: 500px;
+            }
+        }
+        
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes slideDown {
+            from { 
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to { 
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+        
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        .animate-fadeIn {
+            animation: fadeIn 0.5s ease-in;
+        }
+        
+        .animate-slideDown {
+            animation: slideDown 0.5s ease-out;
+        }
+        
+        .animate-pulse {
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        .animate-bounce {
+            animation: bounce 1s ease-in-out infinite;
+        }
+        
+        .button-hover {
+            transition: all 0.3s ease;
+        }
+        
+        .button-hover:hover {
+            transform: scale(1.1);
+            box-shadow: 0 10px 25px rgba(16, 185, 129, 0.5);
+        }
+        
+        .button-hover:active {
+            transform: scale(0.95);
+        }
     </style>
 </head>
-<body class="bg-gray-900 text-white h-screen overflow-hidden p-4">
+<body class="bg-gray-900 text-white">
 
-    <div class="flex flex-col h-full items-center">
+    <div class="game-wrapper">
         <!-- The game title will be set by JS from the config -->
-        <h1 id="gameTitle" class="text-3xl font-bold text-center mb-4 text-cyan-300 flex-shrink-0">
-            Flappy Bird
+        <h1 id="gameTitle" class="game-title font-bold text-center text-cyan-300 flex-shrink-0 animate-slideDown">
+            MyFlappy Aljo
         </h1>
         
         <!-- Game container -->
-        <div class="bg-gray-800 rounded-lg shadow-2xl overflow-hidden relative w-full max-w-lg h-full">
-            <canvas id="gameCanvas" class="w-full h-full"></canvas>
+        <div class="game-container">
+            <div class="canvas-container bg-gray-800 rounded-lg shadow-2xl overflow-hidden relative mx-auto" style="flex: 1; display: flex; flex-direction: column;">
+                <canvas id="gameCanvas" class="w-full h-full"></canvas>
             
             <!-- Start Screen Overlay -->
-            <div id="startScreen" class="absolute inset-0 bg-black bg-opacity-70 flex flex-col items-center justify-center p-4 z-10">
-                <h2 class="text-2xl font-bold mb-4">Ready?</h2>
-                <button id="startButton" class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg text-xl shadow-lg transition duration-200">
-                    Start Game
+            <div id="startScreen" class="absolute inset-0 bg-black bg-opacity-70 flex flex-col items-center justify-center p-4 z-10 animate-fadeIn">
+                <h2 class="text-2xl md:text-4xl font-bold mb-4 animate-bounce">Ready?</h2>
+                <p class="text-sm md:text-base mb-6 text-gray-300 text-center">Click, tap, or press SPACE to flap!</p>
+                <button id="startButton" class="button-hover bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-lg text-xl shadow-lg animate-pulse">
+                    🚀 Start Game
                 </button>
+            </div>
+
+            <!-- Name Entry Screen -->
+            <div id="nameEntryScreen" class="absolute inset-0 bg-black bg-opacity-90 flex flex-col items-center justify-center p-4 z-20">
+                <div class="bg-gray-800 rounded-xl p-8 max-w-md w-full animate-slideDown">
+                    <h2 class="text-3xl md:text-4xl font-bold text-cyan-300 mb-4 text-center">Welcome Player! 🎮</h2>
+                    <p class="text-gray-300 mb-6 text-center">Enter your name to start playing</p>
+                    <input type="text" id="playerNameInput" maxlength="20" placeholder="Your Name" 
+                           class="w-full px-4 py-3 bg-gray-700 text-white rounded-lg text-center text-xl mb-4 focus:outline-none focus:ring-2 focus:ring-cyan-400">
+                    <button id="saveNameButton" class="button-hover w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-6 rounded-lg text-xl shadow-lg">
+                        ✅ Start Playing
+                    </button>
+                </div>
             </div>
 
             <!-- Game Over Overlay -->
-            <div id="gameOverScreen" class="absolute inset-0 bg-black bg-opacity-70 flex-col items-center justify-center p-4 z-10 hidden">
-                <h2 class="text-4xl font-bold text-red-500 mb-2">Game Over</h2>
-                <p class="text-xl mb-4">Score: <span id="finalScore">0</span></p>
-                <p class="text-lg mb-6">High Score: <span id="highScore">0</span></p>
-                <button id="restartButton" class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg text-xl shadow-lg transition duration-200">
-                    Play Again
-                </button>
+            <div id="gameOverScreen" class="absolute inset-0 bg-black bg-opacity-80 hidden flex-col items-center justify-center p-4 z-10 overflow-y-auto">
+                <h2 class="text-4xl md:text-6xl font-bold text-red-500 mb-4 animate-slideDown">You Have Successfully Killed Aljo</h2>
+                <div class="bg-gray-800 rounded-xl p-6 mb-4 animate-fadeIn" style="animation-delay: 0.2s;">
+                    <p class="text-xl md:text-2xl mb-2">Score: <span id="finalScore" class="text-yellow-400 font-bold">0</span></p>
+                    <p class="text-lg md:text-xl">Your Best: <span id="highScore" class="text-cyan-400 font-bold">0</span> 🏆</p>
+                </div>
+                
+                <!-- Leaderboard -->
+                <div id="leaderboardContainer" class="bg-gray-800 rounded-xl p-6 mb-4 w-full max-w-md animate-fadeIn" style="animation-delay: 0.4s;">
+                    <h3 class="text-2xl font-bold text-cyan-300 mb-4 text-center">🏆 Leaderboard</h3>
+                    <div id="leaderboardList" class="space-y-2 max-h-64 overflow-y-auto">
+                        <!-- Leaderboard entries will be inserted here -->
+                    </div>
+                </div>
+                
+                <div class="flex gap-4">
+                    <button id="restartButton" class="button-hover bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-lg text-xl shadow-lg">
+                        🔄 Play Again
+                    </button>
+                    <button id="changeNameButton" class="button-hover bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 px-8 rounded-lg text-xl shadow-lg">
+                        ✏️ Change Name
+                    </button>
+                </div>
             </div>
 
             <!-- Score Display -->
-            <div id="scoreDisplay" class="absolute top-4 left-1/2 -translate-x-1/2 text-5xl font-bold text-white" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">
+            <div id="scoreDisplay" class="absolute top-4 left-1/2 -translate-x-1/2 text-4xl md:text-6xl font-bold text-white" style="text-shadow: 3px 3px 6px rgba(0,0,0,0.7); transition: transform 0.2s ease-out;">
                 0
+            </div>
+            
+            <!-- Distance Display -->
+            <div id="distanceDisplay" class="absolute top-16 md:top-24 left-1/2 -translate-x-1/2 text-lg md:text-2xl font-semibold text-cyan-300 hidden bg-black bg-opacity-40 px-3 py-1 rounded-lg" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.5); transition: all 0.3s ease;">
+                <span class="text-xs md:text-sm">📏 Next: </span><span id="distanceValue">0</span><span class="text-xs md:text-sm">m</span>
+            </div>
+            
+            <!-- Player Name Display -->
+            <div id="playerNameDisplay" class="absolute bottom-4 left-4 text-sm md:text-lg font-semibold text-white bg-black bg-opacity-50 px-3 py-1 rounded-lg hidden" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">
+                👤 <span id="currentPlayerName"></span>
+            </div>
             </div>
         </div>
     </div>
 
     <script>
+        // --- FIREBASE CONFIGURATION ---
+        
+        // Replace these with your Firebase project credentials
+        // Get your config from: https://console.firebase.google.com/
+        // Import the functions you need from the SDKs you need
+
+        const firebaseConfig = {
+        apiKey: "AIzaSyD-qDhqI3MTJf2eqGsKXae29luSg8UBP1Q",
+        authDomain: "my-flappy-aljo.firebaseapp.com",
+        databaseURL: "https://my-flappy-aljo-default-rtdb.firebaseio.com",
+        projectId: "my-flappy-aljo",
+        storageBucket: "my-flappy-aljo.firebasestorage.app",
+        messagingSenderId: "941796846018",
+        appId: "1:941796846018:web:b8a66260dfff2f80f10e5b"
+        };
+
+
+        
+        // Check if Firebase is configured
+        const isFirebaseConfigured = firebaseConfig.apiKey !== "YOUR_API_KEY";
+        
+        // Initialize Firebase
+        let database = null;
+        let useLocalLeaderboard = true;
+        
+        if (isFirebaseConfigured && typeof firebase !== 'undefined') {
+            try {
+                firebase.initializeApp(firebaseConfig);
+                database = firebase.database();
+                useLocalLeaderboard = false;
+                console.log("✅ Firebase initialized successfully");
+            } catch (error) {
+                console.error("❌ Firebase initialization error:", error);
+                console.log("📝 Using local leaderboard instead");
+                useLocalLeaderboard = true;
+            }
+        } else {
+            console.log("⚠️ Firebase not configured. Using local leaderboard.");
+            console.log("💡 To enable online leaderboard, see FIREBASE_SETUP.md");
+            useLocalLeaderboard = true;
+        }
+        
         // --- DEVELOPER CONFIGURATION ---
         // Change the game title here
         const GAME_TITLE = "My Flappy Aljo"; 
@@ -74,12 +265,21 @@
         const BIRD_IMAGE_PATH = "./Tools/face-remo.png";
         const FLAP_SOUND_PATH = "./Tools/falp SOund Final.mp3"; // e.g., "audio/my-flap.wav"
         const OUT_SOUND_PATH = "./Tools/out-Fina.mp3";  // e.g., "audio/my-out.mp3"
+        
+        // Game Difficulty Settings
+        const PIPE_GAP = 250; // Gap between top and bottom pipes (smaller = harder)
+        const PIPE_SPACING = 440; // Distance between pipes (frames at 60fps: 240 = 4 seconds, 180 = 3 seconds, 120 = 2 seconds)
         // --- END CONFIGURATION ---
 
 
         // --- DOM Elements ---
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
+        
+        const nameEntryScreen = document.getElementById('nameEntryScreen');
+        const playerNameInput = document.getElementById('playerNameInput');
+        const saveNameButton = document.getElementById('saveNameButton');
+        const changeNameButton = document.getElementById('changeNameButton');
         
         const startScreen = document.getElementById('startScreen');
         const gameOverScreen = document.getElementById('gameOverScreen');
@@ -89,12 +289,17 @@
         const scoreDisplay = document.getElementById('scoreDisplay');
         const finalScore = document.getElementById('finalScore');
         const highScoreDisplay = document.getElementById('highScore');
+        const distanceDisplay = document.getElementById('distanceDisplay');
+        const distanceValue = document.getElementById('distanceValue');
+        const playerNameDisplay = document.getElementById('playerNameDisplay');
+        const currentPlayerName = document.getElementById('currentPlayerName');
+        const leaderboardList = document.getElementById('leaderboardList');
 
         // --- Game Constants ---
         const BIRD_WIDTH = 90; // "very big" and square
         const BIRD_HEIGHT = 90; // "very big" and square
         const PIPE_WIDTH = 100;
-        const PIPE_GAP = 550; // Increased gap
+        // PIPE_GAP is now configured in the DEVELOPER CONFIGURATION section above
         const GRAVITY = 0.25; 
         const FLAP_STRENGTH = -7.5; 
         const SPEED = 2.0; 
@@ -104,8 +309,202 @@
         // --- Game State ---
         let bird, pipes, score, highScore, gameover, frame;
         
+        // --- Player State ---
+        let playerName = localStorage.getItem('flappyPlayerName') || '';
+        let playerId = localStorage.getItem('flappyPlayerId') || generatePlayerId();
+        
+        // --- Local Leaderboard (fallback when Firebase is not configured) ---
+        function getLocalLeaderboard() {
+            const saved = localStorage.getItem('flappyLocalLeaderboard');
+            return saved ? JSON.parse(saved) : [];
+        }
+        
+        function saveToLocalLeaderboard(playerName, score) {
+            const leaderboard = getLocalLeaderboard();
+            leaderboard.push({
+                playerName: playerName,
+                score: score,
+                playerId: playerId,
+                timestamp: Date.now()
+            });
+            
+            // Keep only top 50 scores
+            leaderboard.sort((a, b) => b.score - a.score);
+            const top50 = leaderboard.slice(0, 50);
+            
+            localStorage.setItem('flappyLocalLeaderboard', JSON.stringify(top50));
+        }
+        
         // --- Background State ---
         let groundOffset, clouds;
+        
+        // --- Particle Effects ---
+        let particles = [];
+        
+        // --- Seeded Random for Consistent Levels ---
+        let seed = 12345; // Fixed seed for consistent pipe generation
+        
+        function seededRandom() {
+            // Linear congruential generator for predictable randomness
+            seed = (seed * 1664525 + 1013904223) % 4294967296;
+            return seed / 4294967296;
+        }
+
+        // --- Player Management ---
+        function generatePlayerId() {
+            const id = 'player_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('flappyPlayerId', id);
+            return id;
+        }
+
+        function savePlayerName(name) {
+            playerName = name.trim();
+            localStorage.setItem('flappyPlayerName', playerName);
+            currentPlayerName.textContent = playerName;
+        }
+
+        function showNameEntry() {
+            nameEntryScreen.classList.remove('hidden');
+            nameEntryScreen.style.display = 'flex';
+            playerNameInput.value = playerName;
+            playerNameInput.focus();
+        }
+
+        function hideNameEntry() {
+            nameEntryScreen.classList.add('hidden');
+            nameEntryScreen.style.display = 'none';
+        }
+
+        // --- Firebase Functions ---
+        async function saveScoreToFirebase(playerName, score) {
+            // Use local leaderboard if Firebase is not configured
+            if (useLocalLeaderboard) {
+                console.log("💾 Saving score to local leaderboard:", {playerName, score});
+                saveToLocalLeaderboard(playerName, score);
+                return;
+            }
+            
+            if (!database) {
+                console.log("Database not initialized, using local leaderboard");
+                saveToLocalLeaderboard(playerName, score);
+                return;
+            }
+            
+            try {
+                const timestamp = Date.now();
+                const scoreData = {
+                    playerName: playerName,
+                    score: score,
+                    timestamp: timestamp,
+                    playerId: playerId
+                };
+                
+                console.log("☁️ Saving score to Firebase:", scoreData);
+                
+                // Save to leaderboard
+                await database.ref('leaderboard/' + playerId + '_' + timestamp).set(scoreData);
+                console.log("✅ Score saved successfully to Firebase leaderboard");
+                
+                // Update player's best score
+                const playerRef = database.ref('players/' + playerId);
+                const snapshot = await playerRef.once('value');
+                const playerData = snapshot.val();
+                
+                if (!playerData || score > (playerData.bestScore || 0)) {
+                    await playerRef.set({
+                        name: playerName,
+                        bestScore: score,
+                        lastPlayed: timestamp
+                    });
+                    console.log("✅ Player best score updated in Firebase");
+                }
+            } catch (error) {
+                console.error("❌ Error saving score to Firebase:", error);
+                console.log("💾 Falling back to local leaderboard");
+                saveToLocalLeaderboard(playerName, score);
+            }
+        }
+
+        async function loadLeaderboard() {
+            try {
+                // Show loading message
+                leaderboardList.innerHTML = '<p class="text-gray-400 text-center">Loading leaderboard...</p>';
+                
+                let scores = [];
+                
+                // Load from local or Firebase
+                if (useLocalLeaderboard) {
+                    console.log("📂 Loading from local leaderboard");
+                    scores = getLocalLeaderboard();
+                    
+                    // Add info message
+                    const infoDiv = document.createElement('div');
+                    infoDiv.className = 'text-xs text-gray-400 text-center mb-2 p-2 bg-gray-900 rounded';
+                    infoDiv.innerHTML = '💾 Local Leaderboard<br><span class="text-xs">Configure Firebase for online leaderboard</span>';
+                    leaderboardList.innerHTML = '';
+                    leaderboardList.appendChild(infoDiv);
+                } else if (database) {
+                    console.log("☁️ Loading from Firebase");
+                    
+                    // Fetch all leaderboard data from Firebase
+                    const snapshot = await database.ref('leaderboard').once('value');
+                    
+                    // Extract all scores
+                    snapshot.forEach(childSnapshot => {
+                        const data = childSnapshot.val();
+                        if (data && data.playerName && typeof data.score === 'number') {
+                            scores.push({
+                                playerName: data.playerName,
+                                score: data.score,
+                                playerId: data.playerId,
+                                timestamp: data.timestamp || 0
+                            });
+                        }
+                    });
+                }
+                
+                console.log("📊 Loaded scores:", scores);
+                
+                // Sort by score in descending order (highest first)
+                scores.sort((a, b) => {
+                    if (b.score !== a.score) {
+                        return b.score - a.score; // Higher score first
+                    }
+                    return a.timestamp - b.timestamp; // Earlier timestamp if same score
+                });
+                
+                // Take top 10
+                const topScores = scores.slice(0, 10);
+                
+                // Display leaderboard entries
+                if (topScores.length === 0) {
+                    const emptyMsg = document.createElement('p');
+                    emptyMsg.className = 'text-gray-400 text-center';
+                    emptyMsg.textContent = 'No scores yet. Be the first!';
+                    leaderboardList.appendChild(emptyMsg);
+                } else {
+                    topScores.forEach((scoreData, index) => {
+                        const rank = index + 1;
+                        const isCurrentPlayer = scoreData.playerId === playerId;
+                        const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`;
+                        
+                        const entry = document.createElement('div');
+                        entry.className = `flex justify-between items-center p-3 rounded transition ${isCurrentPlayer ? 'bg-cyan-700 border-2 border-cyan-400' : 'bg-gray-700'}`;
+                        entry.innerHTML = `
+                            <div class="flex items-center gap-2">
+                                <span class="text-2xl">${medal}</span>
+                                <span class="font-semibold text-white">${scoreData.playerName}</span>
+                            </div>
+                            <span class="text-yellow-400 font-bold text-xl">${scoreData.score}</span>
+                        `;
+                        leaderboardList.appendChild(entry);
+                    });
+                }
+            } catch (error) {
+                console.error("❌ Error loading leaderboard:", error);
+                leaderboardList.innerHTML = `<p class="text-red-400 text-center text-sm">Error: ${error.message}</p>`;
+            }
+        }
 
         // --- Custom Assets ---
         let birdImage = null;
@@ -172,10 +571,79 @@
             }
         }
 
+        // --- Particle Functions ---
+        function createScoreParticles(x, y) {
+            for (let i = 0; i < 10; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 4,
+                    vy: (Math.random() - 0.5) * 4 - 2,
+                    life: 1.0,
+                    size: Math.random() * 4 + 2,
+                    color: `hsl(${Math.random() * 60 + 150}, 100%, 50%)` // Green to cyan
+                });
+            }
+        }
+
+        function createFlapParticles(x, y) {
+            // Small particles when bird flaps
+            for (let i = 0; i < 3; i++) {
+                particles.push({
+                    x: x,
+                    y: y + 20,
+                    vx: (Math.random() - 0.5) * 2,
+                    vy: Math.random() * 2 + 1,
+                    life: 0.5,
+                    size: Math.random() * 3 + 1,
+                    color: 'rgba(255, 255, 255, 0.8)'
+                });
+            }
+        }
+
+        function createCollisionParticles(x, y) {
+            // Explosion effect on collision
+            for (let i = 0; i < 20; i++) {
+                const angle = (Math.PI * 2 * i) / 20;
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * 5,
+                    vy: Math.sin(angle) * 5,
+                    life: 1.0,
+                    size: Math.random() * 5 + 2,
+                    color: `hsl(${Math.random() * 60}, 100%, 50%)` // Red to yellow
+                });
+            }
+        }
+
+        function updateParticles() {
+            particles = particles.filter(p => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.2; // Gravity
+                p.life -= 0.02;
+                return p.life > 0;
+            });
+        }
+
+        function drawParticles() {
+            particles.forEach(p => {
+                ctx.save();
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+        }
+
         // --- Background Functions ---
         function initBackground() {
             groundOffset = 0;
             clouds = [];
+            particles = [];
             const w = canvas.logicalWidth || canvas.width;
             const h = canvas.logicalHeight || canvas.height;
             for (let i = 0; i < 5; i++) {
@@ -205,25 +673,62 @@
         }
 
         function drawBackground(w, h) {
-            // Draw clouds
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            // Draw clouds with shadows and better rendering
             clouds.forEach(cloud => {
+                ctx.save();
+                
+                // Cloud shadow
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+                ctx.shadowBlur = 10;
+                ctx.shadowOffsetX = 2;
+                ctx.shadowOffsetY = 2;
+                
+                // Cloud gradient for 3D effect
+                const cloudGradient = ctx.createRadialGradient(cloud.x, cloud.y, 0, cloud.x, cloud.y, cloud.radius * 1.5);
+                cloudGradient.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+                cloudGradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.85)');
+                cloudGradient.addColorStop(1, 'rgba(240, 240, 240, 0.7)');
+                ctx.fillStyle = cloudGradient;
+                
                 ctx.beginPath();
-                // Simple fluffy cloud shape
+                // Enhanced fluffy cloud shape
                 ctx.arc(cloud.x, cloud.y, cloud.radius, 0, Math.PI * 2);
                 ctx.arc(cloud.x + cloud.radius * 0.8, cloud.y - cloud.radius * 0.3, cloud.radius * 0.8, 0, Math.PI * 2);
                 ctx.arc(cloud.x - cloud.radius * 0.7, cloud.y - cloud.radius * 0.2, cloud.radius * 0.7, 0, Math.PI * 2);
+                ctx.arc(cloud.x + cloud.radius * 0.3, cloud.y + cloud.radius * 0.4, cloud.radius * 0.6, 0, Math.PI * 2);
                 ctx.fill();
+                
+                ctx.restore();
             });
 
-            // Draw looping ground
-            ctx.fillStyle = '#ded895'; // Sandy ground
+            // Draw ground with gradient and texture
+            const groundGradient = ctx.createLinearGradient(0, h - GROUND_HEIGHT, 0, h);
+            groundGradient.addColorStop(0, '#10b981'); // Green grass
+            groundGradient.addColorStop(0.15, '#059669'); // Darker green
+            groundGradient.addColorStop(0.15, '#d4a574'); // Light brown earth
+            groundGradient.addColorStop(1, '#a67c52'); // Darker brown
+
+            ctx.fillStyle = groundGradient;
             ctx.fillRect(groundOffset, h - GROUND_HEIGHT, w, GROUND_HEIGHT);
             ctx.fillRect(groundOffset + w, h - GROUND_HEIGHT, w, GROUND_HEIGHT);
 
-            ctx.fillStyle = '#10b981'; // Green grass top
-            ctx.fillRect(groundOffset, h - GROUND_HEIGHT, w, 10);
-            ctx.fillRect(groundOffset + w, h - GROUND_HEIGHT, w, 10);
+            // Add grass texture with small blades
+            ctx.fillStyle = '#0d9488'; // Teal for grass variation
+            for (let i = 0; i < 50; i++) {
+                const x = (groundOffset + (i * w / 25)) % (w * 2);
+                const y = h - GROUND_HEIGHT + Math.random() * 5;
+                ctx.fillRect(x, y, 2, 8);
+            }
+
+            // Add dirt texture
+            ctx.fillStyle = 'rgba(139, 90, 43, 0.3)';
+            for (let i = 0; i < 30; i++) {
+                const x = (groundOffset + (i * w / 15)) % (w * 2);
+                const y = h - GROUND_HEIGHT + 20 + Math.random() * (GROUND_HEIGHT - 30);
+                ctx.beginPath();
+                ctx.arc(x, y, Math.random() * 3 + 1, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
 
         // --- Game Setup ---
@@ -252,10 +757,35 @@
             gameover = false;
             frame = 0;
             
+            // Reset seed for consistent pipe generation every game
+            seed = 12345;
+            
+            // Spawn first pipe closer to the start
+            const dynamicPipeGap = Math.max(150, Math.min(PIPE_GAP, canvas.logicalHeight / 3));
+            const minPipeHeight = 50;
+            const maxPipeHeight = canvas.logicalHeight - dynamicPipeGap - minPipeHeight - GROUND_HEIGHT;
+            const firstPipeHeight = seededRandom() * (maxPipeHeight - minPipeHeight) + minPipeHeight;
+            
+            pipes.push({
+                x: canvas.logicalWidth * 0.6, // Spawn first pipe at 60% of screen width (closer)
+                top: firstPipeHeight,
+                bottom: firstPipeHeight + dynamicPipeGap,
+                passed: false
+            });
+            
             scoreDisplay.textContent = score;
-            scoreDisplay.classList.remove('hidden');
+            
+            // Smooth transition from start screen to game
+            startScreen.style.opacity = '0';
+            setTimeout(() => {
+                startScreen.classList.add('hidden');
+                scoreDisplay.classList.remove('hidden');
+                distanceDisplay.classList.remove('hidden');
+                scoreDisplay.style.animation = 'slideDown 0.5s ease-out';
+            }, 300);
+            
             gameOverScreen.classList.add('hidden');
-            startScreen.classList.add('hidden');
+            gameOverScreen.classList.remove('flex');
             
             gameLoop();
         }
@@ -293,11 +823,13 @@
             }
 
             // Pipe management
-            if (frame % (Math.floor(240 / SPEED)) === 0) { 
+            if (frame % (Math.floor(PIPE_SPACING / SPEED)) === 0) { 
                 const dynamicPipeGap = Math.max(150, Math.min(PIPE_GAP, canvas.logicalHeight / 3)); // Ensure gap is reasonable
                 const minPipeHeight = 50;
                 const maxPipeHeight = canvas.logicalHeight - dynamicPipeGap - minPipeHeight - GROUND_HEIGHT; // Don't let pipes go into ground
-                const pipeHeight = Math.random() * (maxPipeHeight - minPipeHeight) + minPipeHeight;
+                
+                // Use seeded random for consistent pipe heights every game
+                const pipeHeight = seededRandom() * (maxPipeHeight - minPipeHeight) + minPipeHeight;
                 
                 pipes.push({
                     x: canvas.logicalWidth,
@@ -329,14 +861,54 @@
                     pipe.passed = true;
                     score++;
                     scoreDisplay.textContent = score;
+                    
+                    // Create particle effect at score location
+                    createScoreParticles(canvas.logicalWidth / 2, 60);
+                    
+                    // Score pop animation
+                    scoreDisplay.style.transform = 'translate(-50%, 0) scale(1.3)';
+                    setTimeout(() => {
+                        scoreDisplay.style.transform = 'translate(-50%, 0) scale(1)';
+                    }, 200);
                 }
             });
 
             // Remove off-screen pipes
             pipes = pipes.filter(pipe => pipe.x + PIPE_WIDTH > 0);
 
-            // Update background
+            // Update distance to next pipe
+            updateDistance();
+
+            // Update background and particles
             updateBackground();
+            updateParticles();
+        }
+
+        // --- Distance Calculation ---
+        function updateDistance() {
+            // Find the next pipe (first pipe that hasn't been passed)
+            const nextPipe = pipes.find(pipe => !pipe.passed && pipe.x + PIPE_WIDTH >= bird.x);
+            
+            if (nextPipe) {
+                // Calculate distance from bird to the center of the pipe gap
+                const pipeCenter = nextPipe.x + PIPE_WIDTH / 2;
+                const distance = Math.max(0, Math.round(pipeCenter - bird.x));
+                distanceValue.textContent = distance;
+                
+                // Change color based on distance (visual warning)
+                if (distance < 50) {
+                    distanceDisplay.style.color = '#ef4444'; // Red when very close
+                    distanceDisplay.style.transform = 'translate(-50%, 0) scale(1.1)';
+                } else if (distance < 100) {
+                    distanceDisplay.style.color = '#f59e0b'; // Orange when close
+                    distanceDisplay.style.transform = 'translate(-50%, 0) scale(1.05)';
+                } else {
+                    distanceDisplay.style.color = '#06b6d4'; // Cyan when far
+                    distanceDisplay.style.transform = 'translate(-50%, 0) scale(1)';
+                }
+            } else {
+                distanceValue.textContent = '0';
+            }
         }
 
         // --- Draw Logic ---
@@ -344,55 +916,88 @@
             const w = canvas.logicalWidth;
             const h = canvas.logicalHeight;
 
-            // Draw Sky
-            ctx.fillStyle = '#70c5ce'; // Flappy bird sky blue
+            // Clear any previous shadow settings
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+
+            // Draw Sky with gradient
+            const skyGradient = ctx.createLinearGradient(0, 0, 0, h);
+            skyGradient.addColorStop(0, '#87ceeb'); // Light sky blue at top
+            skyGradient.addColorStop(0.7, '#70c5ce'); // Flappy bird sky blue
+            skyGradient.addColorStop(1, '#5fb3c1'); // Slightly darker at bottom
+            ctx.fillStyle = skyGradient;
             ctx.fillRect(0, 0, w, h);
 
             // Draw Background elements (clouds, ground)
             drawBackground(w, h);
 
+            // Draw Particles (before pipes so they appear behind)
+            drawParticles();
+
             // Draw Pipes
             pipes.forEach(pipe => {
-                // Base color for pipes
-                const pipeColor = '#10b981'; // emerald-500
-                const shadowColor = '#065f46'; // darker emerald
-                const highlightColor = '#34d399'; // lighter emerald
+                // Create gradient for pipes
+                const pipeGradient = ctx.createLinearGradient(pipe.x, 0, pipe.x + PIPE_WIDTH, 0);
+                pipeGradient.addColorStop(0, '#34d399'); // lighter emerald
+                pipeGradient.addColorStop(0.3, '#10b981'); // emerald-500
+                pipeGradient.addColorStop(0.7, '#059669'); // darker emerald
+                pipeGradient.addColorStop(1, '#047857'); // even darker
 
-                // Draw top pipe with 3D effect
-                ctx.fillStyle = pipeColor;
+                // Add shadow behind pipes
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+                ctx.shadowBlur = 10;
+                ctx.shadowOffsetX = 4;
+                ctx.shadowOffsetY = 0;
+
+                // Draw top pipe with gradient
+                ctx.fillStyle = pipeGradient;
                 ctx.fillRect(pipe.x, 0, PIPE_WIDTH, pipe.top);
-                // Highlight
-                ctx.fillStyle = highlightColor;
-                ctx.fillRect(pipe.x, 0, PIPE_WIDTH * 0.1, pipe.top); // Left edge highlight
-                // Shadow
-                ctx.fillStyle = shadowColor;
-                ctx.fillRect(pipe.x + PIPE_WIDTH * 0.9, 0, PIPE_WIDTH * 0.1, pipe.top); // Right edge shadow
 
-                // Draw bottom pipe with 3D effect
-                ctx.fillStyle = pipeColor;
-                ctx.fillRect(pipe.x, pipe.bottom, PIPE_WIDTH, h - pipe.bottom - GROUND_HEIGHT); // Stop at ground
-                // Highlight
-                ctx.fillStyle = highlightColor;
-                ctx.fillRect(pipe.x, pipe.bottom, PIPE_WIDTH * 0.1, h - pipe.bottom - GROUND_HEIGHT); // Left edge highlight
-                // Shadow
-                ctx.fillStyle = shadowColor;
-                ctx.fillRect(pipe.x + PIPE_WIDTH * 0.9, pipe.bottom, PIPE_WIDTH * 0.1, h - pipe.bottom - GROUND_HEIGHT); // Right edge shadow
+                // Draw bottom pipe with gradient
+                ctx.fillRect(pipe.x, pipe.bottom, PIPE_WIDTH, h - pipe.bottom - GROUND_HEIGHT);
 
-                // Add caps
-                const capHeight = 20; 
-                const capOverlap = 2; 
+                // Clear shadow for caps
+                ctx.shadowColor = 'transparent';
 
-                // Top pipe cap
-                ctx.fillStyle = highlightColor; 
+                // Add caps with gradient
+                const capHeight = 25; 
+                const capOverlap = 5; 
+                
+                const capGradient = ctx.createLinearGradient(pipe.x - capOverlap, 0, pipe.x + PIPE_WIDTH + capOverlap, 0);
+                capGradient.addColorStop(0, '#6ee7b7'); // very light emerald
+                capGradient.addColorStop(0.5, '#10b981'); // emerald-500
+                capGradient.addColorStop(1, '#065f46'); // very dark emerald
+
+                // Top pipe cap with shadow
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+                ctx.shadowBlur = 5;
+                ctx.shadowOffsetY = 2;
+                ctx.fillStyle = capGradient;
                 ctx.fillRect(pipe.x - capOverlap, pipe.top - capHeight, PIPE_WIDTH + capOverlap * 2, capHeight);
-                ctx.fillStyle = shadowColor; 
-                ctx.fillRect(pipe.x - capOverlap, pipe.top - capHeight + capHeight * 0.8, PIPE_WIDTH + capOverlap * 2, capHeight * 0.2);
+                
+                // Top cap shine
+                ctx.shadowColor = 'transparent';
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                ctx.fillRect(pipe.x - capOverlap, pipe.top - capHeight, PIPE_WIDTH + capOverlap * 2, capHeight * 0.3);
 
-                // Bottom pipe cap
-                ctx.fillStyle = highlightColor; 
+                // Bottom pipe cap with shadow
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+                ctx.shadowBlur = 5;
+                ctx.shadowOffsetY = 2;
+                ctx.fillStyle = capGradient;
                 ctx.fillRect(pipe.x - capOverlap, pipe.bottom, PIPE_WIDTH + capOverlap * 2, capHeight);
-                ctx.fillStyle = shadowColor; 
-                ctx.fillRect(pipe.x - capOverlap, pipe.bottom + capHeight * 0.8, PIPE_WIDTH + capOverlap * 2, capHeight * 0.2);
+                
+                // Bottom cap shine
+                ctx.shadowColor = 'transparent';
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                ctx.fillRect(pipe.x - capOverlap, pipe.bottom, PIPE_WIDTH + capOverlap * 2, capHeight * 0.3);
+
+                // Add vertical highlight stripe on pipes
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+                ctx.fillRect(pipe.x + PIPE_WIDTH * 0.15, 0, PIPE_WIDTH * 0.15, pipe.top);
+                ctx.fillRect(pipe.x + PIPE_WIDTH * 0.15, pipe.bottom, PIPE_WIDTH * 0.15, h - pipe.bottom - GROUND_HEIGHT);
             });
 
             // Draw Bird
@@ -415,11 +1020,37 @@
                     drawHeight = BIRD_HEIGHT;
                 }
                 
+                // Add drop shadow and glow effect
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+                ctx.shadowBlur = 15;
+                ctx.shadowOffsetX = 3;
+                ctx.shadowOffsetY = 3;
+                
+                ctx.drawImage(birdImage, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+                
+                // Add subtle glow
+                ctx.shadowColor = 'rgba(255, 255, 255, 0.3)';
+                ctx.shadowBlur = 10;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
                 ctx.drawImage(birdImage, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
             } else {
-                // Default bird is a yellow square
-                ctx.fillStyle = 'yellow';
+                // Default bird with gradient and shadow
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+                ctx.shadowBlur = 15;
+                ctx.shadowOffsetX = 3;
+                ctx.shadowOffsetY = 3;
+                
+                const gradient = ctx.createLinearGradient(-bird.width / 2, -bird.height / 2, bird.width / 2, bird.height / 2);
+                gradient.addColorStop(0, '#fbbf24'); // yellow-400
+                gradient.addColorStop(1, '#f59e0b'); // yellow-600
+                ctx.fillStyle = gradient;
                 ctx.fillRect(-bird.width / 2, -bird.height / 2, bird.width, bird.height);
+                
+                // Add highlight
+                ctx.shadowColor = 'transparent';
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.fillRect(-bird.width / 2, -bird.height / 2, bird.width / 4, bird.height / 4);
             }
             
             ctx.restore();
@@ -430,6 +1061,8 @@
             if (!gameover) {
                 bird.velocity = FLAP_STRENGTH;
                 playFlapSound();
+                // Create flap particles for visual feedback
+                createFlapParticles(bird.x, bird.y);
             }
         }
 
@@ -438,6 +1071,15 @@
             gameover = true;
             playOutSound();
             
+            // Create collision explosion effect
+            createCollisionParticles(bird.x, bird.y);
+            
+            // Shake animation on game over
+            canvas.style.animation = 'shake 0.5s';
+            setTimeout(() => {
+                canvas.style.animation = '';
+            }, 500);
+            
             if (score > highScore) {
                 highScore = score;
                 localStorage.setItem('flappyHighScore', highScore);
@@ -445,8 +1087,23 @@
             finalScore.textContent = score;
             highScoreDisplay.textContent = highScore;
             
-            scoreDisplay.classList.add('hidden');
-            gameOverScreen.classList.remove('hidden');
+            // Save score to Firebase
+            if (playerName && score > 0) {
+                saveScoreToFirebase(playerName, score);
+            }
+            
+            // Animate game over screen appearance
+            setTimeout(() => {
+                scoreDisplay.classList.add('hidden');
+                distanceDisplay.classList.add('hidden');
+                playerNameDisplay.classList.add('hidden');
+                gameOverScreen.classList.remove('hidden');
+                gameOverScreen.classList.add('flex');
+                gameOverScreen.style.animation = 'fadeIn 0.5s ease-in';
+                
+                // Load leaderboard
+                loadLeaderboard();
+            }, 300);
         }
 
         function startGame() {
@@ -466,6 +1123,29 @@
         }
 
         // --- Event Listeners ---
+        saveNameButton.addEventListener('click', () => {
+            const name = playerNameInput.value.trim();
+            if (name.length > 0) {
+                savePlayerName(name);
+                hideNameEntry();
+                startScreen.classList.remove('hidden');
+            } else {
+                alert('Please enter a name!');
+            }
+        });
+
+        playerNameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                saveNameButton.click();
+            }
+        });
+
+        changeNameButton.addEventListener('click', () => {
+            gameOverScreen.classList.add('hidden');
+            gameOverScreen.classList.remove('flex');
+            showNameEntry();
+        });
+
         startButton.addEventListener('click', startGame);
         restartButton.addEventListener('click', startGame);
 
@@ -524,15 +1204,33 @@
             canvas.logicalWidth = rect.width;
             canvas.logicalHeight = rect.height;
 
-            ctx.fillStyle = '#70c5ce'; // Flappy bird sky blue
+            // Draw sky with gradient
+            const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.logicalHeight);
+            skyGradient.addColorStop(0, '#87ceeb');
+            skyGradient.addColorStop(0.7, '#70c5ce');
+            skyGradient.addColorStop(1, '#5fb3c1');
+            ctx.fillStyle = skyGradient;
             ctx.fillRect(0, 0, canvas.logicalWidth, canvas.logicalHeight);
             
             initBackground();
             drawBackground(canvas.logicalWidth, canvas.logicalHeight);
 
             scoreDisplay.classList.add('hidden');
-            startScreen.classList.remove('hidden');
+            distanceDisplay.classList.add('hidden');
+            playerNameDisplay.classList.add('hidden');
             gameOverScreen.classList.add('hidden');
+            gameOverScreen.classList.remove('flex');
+            
+            // Check if player has a name, otherwise show name entry
+            if (playerName) {
+                currentPlayerName.textContent = playerName;
+                startScreen.classList.remove('hidden');
+                startScreen.style.opacity = '1';
+                nameEntryScreen.classList.add('hidden');
+            } else {
+                startScreen.classList.add('hidden');
+                showNameEntry();
+            }
         }
 
         initialScreenSetup();
