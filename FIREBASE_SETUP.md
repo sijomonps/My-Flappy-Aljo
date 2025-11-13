@@ -31,18 +31,21 @@
   "rules": {
     "leaderboard": {
       ".read": true,
-      ".write": true,
+      "$playerKey": {
+        ".write": true,
+        ".validate": "newData.hasChildren(['playerName', 'score', 'timestamp', 'playerId']) && newData.child('score').isNumber()"
+      },
       ".indexOn": ["score"]
-    },
-    "players": {
-      ".read": true,
-      "$playerId": {
-        ".write": true
-      }
     }
   }
 }
 ```
+
+**Important Notes:**
+- The leaderboard now stores one entry per unique player name
+- Player names are converted to lowercase and used as keys (e.g., "john_doe")
+- No duplicate names allowed - only the highest score is kept per name
+- Perfect for global competition across all devices
 
 ## Step 3: Get Your Firebase Configuration
 

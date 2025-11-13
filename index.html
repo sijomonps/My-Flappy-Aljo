@@ -132,6 +132,25 @@
         .button-hover:active {
             transform: scale(0.95);
         }
+        
+        /* Custom Scrollbar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #06b6d4, #0891b2);
+            border-radius: 10px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, #0891b2, #06b6d4);
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white">
@@ -170,28 +189,56 @@
             </div>
 
             <!-- Game Over Overlay -->
-            <div id="gameOverScreen" class="absolute inset-0 bg-black bg-opacity-80 hidden flex-col items-center justify-center p-4 z-10 overflow-y-auto">
-                <h2 class="text-4xl md:text-6xl font-bold text-red-500 mb-4 animate-slideDown">You Have Successfully Killed Aljo</h2>
-                <div class="bg-gray-800 rounded-xl p-6 mb-4 animate-fadeIn" style="animation-delay: 0.2s;">
-                    <p class="text-xl md:text-2xl mb-2">Score: <span id="finalScore" class="text-yellow-400 font-bold">0</span></p>
-                    <p class="text-lg md:text-xl">Your Best: <span id="highScore" class="text-cyan-400 font-bold">0</span> 🏆</p>
-                </div>
-                
-                <!-- Leaderboard -->
-                <div id="leaderboardContainer" class="bg-gray-800 rounded-xl p-6 mb-4 w-full max-w-md animate-fadeIn" style="animation-delay: 0.4s;">
-                    <h3 class="text-2xl font-bold text-cyan-300 mb-4 text-center">🏆 Leaderboard</h3>
-                    <div id="leaderboardList" class="space-y-2 max-h-64 overflow-y-auto">
-                        <!-- Leaderboard entries will be inserted here -->
+            <div id="gameOverScreen" class="absolute inset-0 bg-black bg-opacity-90 hidden flex-col items-center p-4 z-10 overflow-y-auto">
+                <div class="flex flex-col items-center justify-start w-full max-w-2xl my-auto">
+                    <!-- Game Over Title -->
+                    <h2 class="text-3xl md:text-5xl font-bold text-red-500 mb-6 animate-slideDown text-center">
+                        💥 Game Over!
+                    </h2>
+                    
+                    <!-- Score Card -->
+                    <div class="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-8 mb-6 w-full animate-fadeIn shadow-2xl border-2 border-gray-700" style="animation-delay: 0.2s;">
+                        <div class="text-center mb-4">
+                            <p class="text-gray-400 text-sm mb-1">Your Score</p>
+                            <p class="text-6xl font-bold text-yellow-400 mb-4">
+                                <span id="finalScore">0</span>
+                            </p>
+                        </div>
+                        <div class="flex justify-center items-center gap-4 pt-4 border-t border-gray-700">
+                            <div class="text-center">
+                                <p class="text-gray-400 text-xs mb-1">Personal Best</p>
+                                <p class="text-2xl font-bold text-cyan-400">
+                                    <span id="highScore">0</span> 🏆
+                                </p>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                
-                <div class="flex gap-4">
-                    <button id="restartButton" class="button-hover bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-lg text-xl shadow-lg">
-                        🔄 Play Again
-                    </button>
-                    <button id="changeNameButton" class="button-hover bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 px-8 rounded-lg text-xl shadow-lg">
-                        ✏️ Change Name
-                    </button>
+                    
+                    <!-- Leaderboard -->
+                    <div id="leaderboardContainer" class="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-6 mb-6 w-full animate-fadeIn shadow-2xl border-2 border-gray-700" style="animation-delay: 0.4s;">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-2xl md:text-3xl font-bold text-cyan-300 text-center flex-1">
+                                🏆 Global Leaderboard
+                            </h3>
+                            <!-- Admin Clear Button (hold Shift and click title to show) -->
+                            <button id="clearLeaderboardBtn" class="hidden text-xs bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded">
+                                🗑️ Clear
+                            </button>
+                        </div>
+                        <div id="leaderboardList" class="space-y-2 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
+                            <!-- Leaderboard entries will be inserted here -->
+                        </div>
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div class="flex flex-col sm:flex-row gap-3 w-full justify-center">
+                        <button id="restartButton" class="button-hover bg-green-500 hover:bg-green-600 text-white font-bold py-4 px-8 rounded-xl text-lg shadow-lg flex-1 sm:flex-none">
+                            🔄 Play Again
+                        </button>
+                        <button id="changeNameButton" class="button-hover bg-purple-500 hover:bg-purple-600 text-white font-bold py-4 px-8 rounded-xl text-lg shadow-lg flex-1 sm:flex-none">
+                            ✏️ Change Name
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -255,6 +302,53 @@
             console.log("💡 To enable online leaderboard, see FIREBASE_SETUP.md");
             useLocalLeaderboard = true;
         }
+        
+        // --- GLOBAL FUNCTIONS (Define early for console access) ---
+        window.clearLeaderboard = function() {
+            localStorage.removeItem('flappyLocalLeaderboard');
+            console.log('✅ Local leaderboard cleared!');
+            
+            // Also clear Firebase if connected
+            if (database && !useLocalLeaderboard) {
+                database.ref('leaderboard').remove()
+                    .then(() => {
+                        console.log('☁️ Firebase leaderboard cleared!');
+                        alert('✅ Leaderboard cleared (Local + Firebase)! Refresh the page.');
+                    })
+                    .catch(err => {
+                        console.error('❌ Error clearing Firebase:', err);
+                        alert('✅ Local leaderboard cleared! Refresh the page.');
+                    });
+            } else {
+                alert('✅ Local leaderboard cleared! Refresh the page.');
+            }
+        };
+        
+        window.clearAllData = function() {
+            // Clear localStorage
+            localStorage.removeItem('flappyLocalLeaderboard');
+            localStorage.removeItem('flappyPlayerName');
+            localStorage.removeItem('flappyPlayerId');
+            localStorage.removeItem('flappyHighScore');
+            console.log('🗑️ Local data cleared!');
+            
+            // Clear Firebase if connected
+            if (database && !useLocalLeaderboard) {
+                database.ref('leaderboard').remove()
+                    .then(() => {
+                        console.log('☁️ Firebase leaderboard cleared!');
+                        alert('✅ All data cleared (Local + Firebase)! The page will reload.');
+                        return true;
+                    })
+                    .catch(err => {
+                        console.error('❌ Error clearing Firebase:', err);
+                        alert('⚠️ Local data cleared, but Firebase error. Check console. Refreshing...');
+                        return false;
+                    });
+            } else {
+                alert('✅ All local data cleared! The page will reload.');
+            }
+        };
         
         // --- DEVELOPER CONFIGURATION ---
         // Change the game title here
@@ -320,19 +414,45 @@
         }
         
         function saveToLocalLeaderboard(playerName, score) {
-            const leaderboard = getLocalLeaderboard();
-            leaderboard.push({
-                playerName: playerName,
-                score: score,
-                playerId: playerId,
-                timestamp: Date.now()
-            });
+            let leaderboard = getLocalLeaderboard();
             
-            // Keep only top 50 scores
+            // Find if player name already exists (check by name, not ID for global competition)
+            const existingPlayerIndex = leaderboard.findIndex(entry => 
+                entry.playerName.toLowerCase() === playerName.toLowerCase()
+            );
+            
+            if (existingPlayerIndex !== -1) {
+                // Player name exists - only update if new score is higher
+                if (score > leaderboard[existingPlayerIndex].score) {
+                    console.log(`🎉 ${playerName}: New high score! ${leaderboard[existingPlayerIndex].score} → ${score}`);
+                    leaderboard[existingPlayerIndex].score = score;
+                    leaderboard[existingPlayerIndex].playerId = playerId;
+                    leaderboard[existingPlayerIndex].timestamp = Date.now();
+                } else {
+                    console.log(`${playerName}: Score ${score} not better than best ${leaderboard[existingPlayerIndex].score}`);
+                    return; // Don't save if not a personal best
+                }
+            } else {
+                // New player name - add to leaderboard
+                console.log(`🆕 New player: ${playerName} with score ${score}`);
+                leaderboard.push({
+                    playerName: playerName,
+                    score: score,
+                    playerId: playerId,
+                    timestamp: Date.now()
+                });
+            }
+            
+            // Sort by score descending and keep only top 100
             leaderboard.sort((a, b) => b.score - a.score);
-            const top50 = leaderboard.slice(0, 50);
+            const top100 = leaderboard.slice(0, 100);
             
-            localStorage.setItem('flappyLocalLeaderboard', JSON.stringify(top50));
+            localStorage.setItem('flappyLocalLeaderboard', JSON.stringify(top100));
+        }
+        
+        function clearLocalLeaderboard() {
+            localStorage.removeItem('flappyLocalLeaderboard');
+            console.log('🗑️ Local leaderboard cleared');
         }
         
         // --- Background State ---
@@ -391,32 +511,32 @@
             }
             
             try {
-                const timestamp = Date.now();
-                const scoreData = {
-                    playerName: playerName,
-                    score: score,
-                    timestamp: timestamp,
-                    playerId: playerId
-                };
+                // Create a unique key based on player name (case-insensitive)
+                const playerKey = playerName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                const leaderboardRef = database.ref('leaderboard/' + playerKey);
                 
-                console.log("☁️ Saving score to Firebase:", scoreData);
+                // Check if this player name already exists
+                const snapshot = await leaderboardRef.once('value');
+                const existingData = snapshot.val();
+                const currentBest = existingData ? existingData.score : 0;
                 
-                // Save to leaderboard
-                await database.ref('leaderboard/' + playerId + '_' + timestamp).set(scoreData);
-                console.log("✅ Score saved successfully to Firebase leaderboard");
-                
-                // Update player's best score
-                const playerRef = database.ref('players/' + playerId);
-                const snapshot = await playerRef.once('value');
-                const playerData = snapshot.val();
-                
-                if (!playerData || score > (playerData.bestScore || 0)) {
-                    await playerRef.set({
-                        name: playerName,
-                        bestScore: score,
-                        lastPlayed: timestamp
-                    });
-                    console.log("✅ Player best score updated in Firebase");
+                // Only save if this is a new high score for this player name
+                if (score > currentBest) {
+                    const timestamp = Date.now();
+                    const scoreData = {
+                        playerName: playerName, // Keep original capitalization
+                        score: score,
+                        timestamp: timestamp,
+                        playerId: playerId
+                    };
+                    
+                    console.log(`☁️ ${playerName}: New high score! ${currentBest} → ${score}`);
+                    
+                    // Save to leaderboard (one entry per unique player name)
+                    await leaderboardRef.set(scoreData);
+                    console.log("✅ Leaderboard updated in Firebase");
+                } else {
+                    console.log(`${playerName}: Score ${score} not better than best ${currentBest}`);
                 }
             } catch (error) {
                 console.error("❌ Error saving score to Firebase:", error);
@@ -1234,6 +1354,36 @@
         }
 
         initialScreenSetup();
+
+        // --- Admin Controls ---
+        // Show clear button when Shift+Click on leaderboard title
+        const leaderboardContainer = document.getElementById('leaderboardContainer');
+        const clearBtn = document.getElementById('clearLeaderboardBtn');
+        let shiftClicks = 0;
+        
+        leaderboardContainer.addEventListener('click', (e) => {
+            if (e.shiftKey) {
+                shiftClicks++;
+                if (shiftClicks >= 3) {
+                    clearBtn.classList.remove('hidden');
+                    console.log('🔓 Admin mode activated - Clear button visible');
+                }
+            }
+        });
+
+        // Clear button event listener
+        clearBtn.addEventListener('click', () => {
+            if (confirm('⚠️ Clear entire leaderboard?\n\nThis will remove:\n- All leaderboard scores\n- Your player name\n- Your high score\n\nThis action cannot be undone!')) {
+                clearAllData();
+                location.reload();
+            }
+        });
+        
+        console.log('🎮 Game Commands Available:');
+        console.log('  - clearLeaderboard() : Clear the leaderboard');
+        console.log('  - clearAllData() : Clear all game data (leaderboard, name, ID, high score)');
+        console.log('');
+        console.log('💡 Quick Clear: Hold Shift and click leaderboard 3 times to show clear button');
 
     </script>
 </body>
