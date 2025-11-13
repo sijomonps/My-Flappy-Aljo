@@ -193,7 +193,7 @@
                 <div class="flex flex-col items-center justify-start w-full max-w-2xl my-auto">
                     <!-- Game Over Title -->
                     <h2 class="text-3xl md:text-5xl font-bold text-red-500 mb-6 animate-slideDown text-center">
-                        💥 Game Over!
+                        💥You Killed Aljo!
                     </h2>
                     
                     <!-- Score Card -->
@@ -248,7 +248,7 @@
             </div>
             
             <!-- Distance Display -->
-            <div id="distanceDisplay" class="absolute top-16 md:top-24 left-1/2 -translate-x-1/2 text-lg md:text-2xl font-semibold text-cyan-300 hidden bg-black bg-opacity-40 px-3 py-1 rounded-lg" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.5); transition: all 0.3s ease;">
+            <div id="distanceDisplay" class="d-none absolute top-16 md:top-24 left-1/2 -translate-x-1/2 text-lg md:text-2xl font-semibold text-cyan-300 hidden bg-black bg-opacity-40 px-3 py-1 rounded-lg" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.5); transition: all 0.3s ease;">
                 <span class="text-xs md:text-sm">📏 Next: </span><span id="distanceValue">0</span><span class="text-xs md:text-sm">m</span>
             </div>
             
@@ -880,17 +880,21 @@
             // Reset seed for consistent pipe generation every game
             seed = 12345;
             
-            // Spawn first pipe closer to the start
+            // Spawn first pipe - further away on mobile for easier start
+            const isMobile = window.innerWidth <= 767;
+            const firstPipeDistance = isMobile ? 1.2 : 0.6; // Mobile: 120% screen width (off-screen), Desktop: 60%
+            
             const dynamicPipeGap = Math.max(150, Math.min(PIPE_GAP, canvas.logicalHeight / 3));
             const minPipeHeight = 50;
             const maxPipeHeight = canvas.logicalHeight - dynamicPipeGap - minPipeHeight - GROUND_HEIGHT;
             const firstPipeHeight = seededRandom() * (maxPipeHeight - minPipeHeight) + minPipeHeight;
             
             pipes.push({
-                x: canvas.logicalWidth * 0.6, // Spawn first pipe at 60% of screen width (closer)
+                x: canvas.logicalWidth * firstPipeDistance, // Mobile gets more time to prepare
                 top: firstPipeHeight,
                 bottom: firstPipeHeight + dynamicPipeGap,
-                passed: false
+                passed: false,
+                isFirstPipe: true // Mark as first pipe for mobile spacing logic
             });
             
             scoreDisplay.textContent = score;
@@ -943,7 +947,11 @@
             }
 
             // Pipe management
-            if (frame % (Math.floor(PIPE_SPACING / SPEED)) === 0) { 
+            // Check if it's time to spawn a new pipe
+            // Same spacing for all pipes including first two
+            const spawnInterval = Math.floor(PIPE_SPACING / SPEED);
+            
+            if (frame > 0 && frame % spawnInterval === 0) { 
                 const dynamicPipeGap = Math.max(150, Math.min(PIPE_GAP, canvas.logicalHeight / 3)); // Ensure gap is reasonable
                 const minPipeHeight = 50;
                 const maxPipeHeight = canvas.logicalHeight - dynamicPipeGap - minPipeHeight - GROUND_HEIGHT; // Don't let pipes go into ground
@@ -955,7 +963,8 @@
                     x: canvas.logicalWidth,
                     top: pipeHeight,
                     bottom: pipeHeight + dynamicPipeGap,
-                    passed: false
+                    passed: false,
+                    isFirstPipe: false
                 });
             }
 
