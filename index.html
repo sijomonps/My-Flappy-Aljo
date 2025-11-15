@@ -404,6 +404,7 @@
         let bird, pipes, score, highScore, gameover, frame;
         let lastTime = 0; // For delta time calculation
         let deltaTime = 0; // Time since last frame
+        let timeSinceLastPipe = 0; // Accumulated time for pipe spawning
         
         // --- Player State ---
         let playerName = localStorage.getItem('flappyPlayerName') || '';
@@ -880,6 +881,7 @@
             frame = 0;
             lastTime = 0; // Reset delta time tracking
             deltaTime = 0; // Reset delta time
+            timeSinceLastPipe = 0; // Reset pipe spawn timer
             
             // Reset seed for consistent pipe generation every game
             seed = 12345;
@@ -963,11 +965,13 @@
             }
 
             // Pipe management
-            // Check if it's time to spawn a new pipe
-            // Same spacing for all pipes including first two
-            const spawnInterval = Math.floor(PIPE_SPACING / SPEED);
+            // Check if it's time to spawn a new pipe based on elapsed time (not frames)
+            // This ensures consistent pipe spacing across all refresh rates
+            const pipeSpawnTime = PIPE_SPACING / SPEED / 60; // Time in seconds (60 FPS baseline)
+            timeSinceLastPipe += deltaTime;
             
-            if (frame > 0 && frame % spawnInterval === 0) { 
+            if (timeSinceLastPipe >= pipeSpawnTime) {
+                timeSinceLastPipe = 0; // Reset timer 
                 const dynamicPipeGap = Math.max(150, Math.min(PIPE_GAP, canvas.logicalHeight / 3)); // Ensure gap is reasonable
                 const minPipeHeight = 50;
                 const maxPipeHeight = canvas.logicalHeight - dynamicPipeGap - minPipeHeight - GROUND_HEIGHT; // Don't let pipes go into ground
