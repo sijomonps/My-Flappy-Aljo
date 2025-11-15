@@ -425,19 +425,45 @@
         
         // Validate score integrity
         function validateScore(score, time, pipes, flaps) {
-            // Score should match pipes passed
-            if (score !== pipes) return false;
+            // Score should match pipes passed EXACTLY
+            if (score !== pipes) {
+                console.error('🚫 Score mismatch:', {score, pipes});
+                return false;
+            }
             
-            // Minimum time validation (assuming ~3 seconds per pipe minimum)
-            const minTimeNeeded = pipes * 2; // 2 seconds minimum per pipe
-            if (time < minTimeNeeded) return false;
+            // Minimum time validation (2 seconds per pipe minimum)
+            const minTimeNeeded = pipes * 2;
+            if (time < minTimeNeeded) {
+                console.error('🚫 Time too fast:', {time, minTimeNeeded});
+                return false;
+            }
             
-            // Maximum reasonable flaps (assume max 2 flaps per second on average)
-            const maxReasonableFlaps = time * 3;
-            if (flaps > maxReasonableFlaps) return false;
+            // Maximum time validation (30 seconds max per pipe)
+            const maxTimeAllowed = pipes * 30;
+            if (time > maxTimeAllowed) {
+                console.error('🚫 Time too slow:', {time, maxTimeAllowed});
+                return false;
+            }
             
-            // Score can't be negative or impossibly high
-            if (score < 0 || score > 9999) return false;
+            // Flap validation (min 1, max 5 per pipe on average + 10 for start)
+            const minFlapsNeeded = pipes * 1;
+            const maxReasonableFlaps = pipes * 5 + 10;
+            if (flaps < minFlapsNeeded || flaps > maxReasonableFlaps) {
+                console.error('🚫 Flap count suspicious:', {flaps, min: minFlapsNeeded, max: maxReasonableFlaps});
+                return false;
+            }
+            
+            // Score bounds check
+            if (score < 0 || score > 9999) {
+                console.error('🚫 Score out of bounds:', score);
+                return false;
+            }
+            
+            // Physics validation - bird velocity should be reasonable
+            if (typeof bird !== 'undefined' && Math.abs(bird.velocity) > 50) {
+                console.error('🚫 Impossible velocity:', bird.velocity);
+                return false;
+            }
             
             return true;
         }
@@ -1006,6 +1032,12 @@
 
         // --- Update Logic ---
         function update() {
+            // Anti-cheat: Detect if game variables are being tampered with
+            if (typeof bird === 'undefined' || typeof pipes === 'undefined' || typeof score === 'undefined') {
+                console.error('🚫 Game tampering detected! Variables modified.');
+                return endGame();
+            }
+            
             // Use 60 FPS as baseline (1/60 = 0.0166... seconds per frame)
             const timeScale = deltaTime > 0 ? deltaTime / (1/60) : 1;
             
@@ -1054,10 +1086,13 @@
                 });
             }
 
+            // Anti-cheat: Track collision state to prevent bypassing
+            let collisionDetected = false;
+            
             pipes.forEach(pipe => {
                 pipe.x -= SPEED * timeScale;
 
-                // Collision detection
+                // Collision detection - CANNOT BE BYPASSED
                 const birdLeft = bird.x - bird.width / 2;
                 const birdRight = bird.x + bird.width / 2;
                 const birdTop = bird.y - bird.height / 2;
@@ -1065,10 +1100,14 @@
 
                 const pipeRight = pipe.x + PIPE_WIDTH;
 
-                if (birdRight > pipe.x && birdLeft < pipeRight) {
-                    if (birdTop < pipe.top || birdBottom > pipe.bottom) {
-                        return endGame();
-                    }
+                // Multiple collision checks to prevent bypassing
+                const horizontalCollision = birdRight > pipe.x && birdLeft < pipeRight;
+                const topCollision = birdTop < pipe.top;
+                const bottomCollision = birdBottom > pipe.bottom;
+
+                if (horizontalCollision && (topCollision || bottomCollision)) {
+                    collisionDetected = true;
+                    console.error('🚫 Pipe collision detected!');
                 }
 
                 // Score
@@ -1078,8 +1117,8 @@
                     
                     // Anti-cheat: Verify score matches pipes passed
                     if (score !== pipesPassed - 1) {
-                        console.warn('⚠️ Score tampering detected!');
-                        return endGame();
+                        console.error('🚫 Score tampering detected!');
+                        collisionDetected = true;
                     }
                     
                     score++;
@@ -1095,6 +1134,11 @@
                     }, 200);
                 }
             });
+
+            // Force end game if collision was detected (cannot be bypassed)
+            if (collisionDetected) {
+                return endGame();
+            }
 
             // Remove off-screen pipes
             pipes = pipes.filter(pipe => pipe.x + PIPE_WIDTH > 0);
