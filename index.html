@@ -596,8 +596,8 @@
                     return a.timestamp - b.timestamp; // Earlier timestamp if same score
                 });
                 
-                // Take top 10
-                const topScores = scores.slice(0, 10);
+                // Display all scores (not just top 10)
+                const topScores = scores; // Show all players
                 
                 // Display leaderboard entries
                 if (topScores.length === 0) {
