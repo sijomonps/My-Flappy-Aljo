@@ -406,6 +406,42 @@
         let deltaTime = 0; // Time since last frame
         let timeSinceLastPipe = 0; // Accumulated time for pipe spawning
         
+        // Anti-cheat: Track game integrity
+        let gameStartTime = 0;
+        let pipesPassed = 0;
+        let totalFlaps = 0;
+        let gameHash = '';
+        
+        // Simple hash function for integrity checking
+        function simpleHash(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash; // Convert to 32bit integer
+            }
+            return Math.abs(hash).toString(36);
+        }
+        
+        // Validate score integrity
+        function validateScore(score, time, pipes, flaps) {
+            // Score should match pipes passed
+            if (score !== pipes) return false;
+            
+            // Minimum time validation (assuming ~3 seconds per pipe minimum)
+            const minTimeNeeded = pipes * 2; // 2 seconds minimum per pipe
+            if (time < minTimeNeeded) return false;
+            
+            // Maximum reasonable flaps (assume max 2 flaps per second on average)
+            const maxReasonableFlaps = time * 3;
+            if (flaps > maxReasonableFlaps) return false;
+            
+            // Score can't be negative or impossibly high
+            if (score < 0 || score > 9999) return false;
+            
+            return true;
+        }
+        
         // --- Player State ---
         let playerName = localStorage.getItem('flappyPlayerName') || '';
         let playerId = localStorage.getItem('flappyPlayerId') || generatePlayerId();
@@ -417,6 +453,13 @@
         }
         
         function saveToLocalLeaderboard(playerName, score) {
+            // Anti-cheat: Re-validate before local save
+            const gameTime = (Date.now() - gameStartTime) / 1000;
+            if (!validateScore(score, gameTime, pipesPassed, totalFlaps)) {
+                console.error('🚫 Invalid score - local save rejected');
+                return;
+            }
+            
             let leaderboard = getLocalLeaderboard();
             
             // Find if player name already exists (check by name, not ID for global competition)
@@ -500,6 +543,23 @@
 
         // --- Firebase Functions ---
         async function saveScoreToFirebase(playerName, score) {
+            // Anti-cheat: Validate score before saving
+            const gameTime = (Date.now() - gameStartTime) / 1000; // seconds
+            const isValid = validateScore(score, gameTime, pipesPassed, totalFlaps);
+            
+            if (!isValid) {
+                console.error('🚫 Invalid score detected! Score rejected.');
+                console.log('Debug:', {score, gameTime, pipesPassed, totalFlaps});
+                return; // Don't save tampered scores
+            }
+            
+            // Generate integrity hash
+            const integrityCheck = simpleHash(
+                gameHash + score + pipesPassed + totalFlaps + gameTime.toFixed(2)
+            );
+            
+            console.log('✅ Score validated:', {score, time: gameTime.toFixed(1), pipes: pipesPassed, flaps: totalFlaps, hash: integrityCheck});
+            
             // Use local leaderboard if Firebase is not configured
             if (useLocalLeaderboard) {
                 console.log("💾 Saving score to local leaderboard:", {playerName, score});
@@ -883,6 +943,12 @@
             deltaTime = 0; // Reset delta time
             timeSinceLastPipe = 0; // Reset pipe spawn timer
             
+            // Anti-cheat: Initialize integrity tracking
+            gameStartTime = Date.now();
+            pipesPassed = 0;
+            totalFlaps = 0;
+            gameHash = simpleHash(playerId + gameStartTime + seed);
+            
             // Reset seed for consistent pipe generation every game
             seed = 12345;
             
@@ -1008,6 +1074,14 @@
                 // Score
                 if (!pipe.passed && pipe.x < bird.x) {
                     pipe.passed = true;
+                    pipesPassed++; // Anti-cheat: Track pipes
+                    
+                    // Anti-cheat: Verify score matches pipes passed
+                    if (score !== pipesPassed - 1) {
+                        console.warn('⚠️ Score tampering detected!');
+                        return endGame();
+                    }
+                    
                     score++;
                     scoreDisplay.textContent = score;
                     
@@ -1208,6 +1282,7 @@
         // --- Game State Functions ---
         function flap() {
             if (!gameover) {
+                totalFlaps++; // Anti-cheat: Track flaps
                 bird.velocity = FLAP_STRENGTH;
                 playFlapSound();
                 // Create flap particles for visual feedback
