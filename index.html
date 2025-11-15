@@ -256,6 +256,14 @@
             <div id="playerNameDisplay" class="absolute bottom-4 left-4 text-sm md:text-lg font-semibold text-white bg-black bg-opacity-50 px-3 py-1 rounded-lg hidden" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">
                 👤 <span id="currentPlayerName"></span>
             </div>
+            
+            <!-- Active Players Display -->
+            <div id="activePlayersDisplay" class="absolute top-4 right-4 text-xs md:text-sm font-semibold text-white bg-black bg-opacity-60 px-3 py-2 rounded-lg" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">
+                <div class="flex items-center gap-2">
+                    <span class="text-green-400">●</span>
+                    <span id="activePlayersCount">0</span> online
+                </div>
+            </div>
             </div>
         </div>
     </div>
@@ -285,6 +293,8 @@
         // Initialize Firebase
         let database = null;
         let useLocalLeaderboard = true;
+        let presenceRef = null; // Reference to current player's presence
+        let activePlayersRef = null; // Reference to active players list
         
         if (isFirebaseConfigured && typeof firebase !== 'undefined') {
             try {
@@ -542,6 +552,254 @@
             return seed / 4294967296;
         }
 
+        // --- Active Players Tracking ---
+        function setupPresence() {
+            if (useLocalLeaderboard || !database) {
+                console.log('📡 Active players tracking: Using local mode (no Firebase)');
+                document.getElementById('activePlayersCount').textContent = '1';
+                return;
+            }
+            
+            try {
+                // Create presence reference for this player
+                presenceRef = database.ref('presence/' + playerId);
+                activePlayersRef = database.ref('presence');
+                
+                // Set player as online
+                const presenceData = {
+                    playerName: playerName,
+                    playerId: playerId,
+                    lastActive: firebase.database.ServerValue.TIMESTAMP,
+                    status: 'online'
+                };
+                
+                presenceRef.set(presenceData);
+                
+                // Update last active every 30 seconds
+                const updateInterval = setInterval(() => {
+                    if (presenceRef) {
+                        presenceRef.update({
+                            lastActive: firebase.database.ServerValue.TIMESTAMP
+                        });
+                    }
+                }, 30000);
+                
+                // Set up automatic cleanup on disconnect
+                presenceRef.onDisconnect().remove();
+                
+                // Listen for active players count
+                activePlayersRef.on('value', (snapshot) => {
+                    const now = Date.now();
+                    let activeCount = 0;
+                    
+                    snapshot.forEach((childSnapshot) => {
+                        const data = childSnapshot.val();
+                        // Consider active if last active within 2 minutes
+                        if (now - data.lastActive < 120000) {
+                            activeCount++;
+                        }
+                    });
+                    
+                    document.getElementById('activePlayersCount').textContent = activeCount;
+                    console.log(`📡 Active players: ${activeCount}`);
+                });
+                
+                // Clean up on page unload
+                window.addEventListener('beforeunload', () => {
+                    if (presenceRef) {
+                        presenceRef.remove();
+                    }
+                    clearInterval(updateInterval);
+                });
+                
+                console.log('✅ Active players tracking enabled');
+            } catch (error) {
+                console.error('❌ Error setting up presence:', error);
+                document.getElementById('activePlayersCount').textContent = '?';
+            }
+        }
+        
+        function updatePresenceStatus(status) {
+            if (presenceRef && !useLocalLeaderboard) {
+                presenceRef.update({
+                    status: status,
+                    lastActive: firebase.database.ServerValue.TIMESTAMP
+                });
+            }
+        }
+        
+        // Get list of active players
+        async function getActivePlayers() {
+            if (useLocalLeaderboard || !database) {
+                return [{playerName: playerName, status: 'online'}];
+            }
+            
+            try {
+                const snapshot = await database.ref('presence').once('value');
+                const players = [];
+                const now = Date.now();
+                
+                snapshot.forEach((childSnapshot) => {
+                    const data = childSnapshot.val();
+                    // Only include players active within last 2 minutes
+                    if (now - data.lastActive < 120000) {
+                        players.push({
+                            playerName: data.playerName,
+                            playerId: data.playerId,
+                            status: data.status,
+                            lastActive: new Date(data.lastActive).toLocaleTimeString()
+                        });
+                    }
+                });
+                
+                return players;
+            } catch (error) {
+                console.error('Error getting active players:', error);
+                return [];
+            }
+        }
+        
+        // View active players in console
+        window.viewActivePlayers = async function() {
+            const players = await getActivePlayers();
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('🟢 ACTIVE PLAYERS');
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            if (players.length === 0) {
+                console.log('No active players');
+            } else {
+                players.forEach((player, idx) => {
+                    console.log(`${idx + 1}. ${player.playerName} - ${player.status} (Last: ${player.lastActive})`);
+                });
+            }
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log(`Total: ${players.length} player(s) online`);
+        };
+        
+        // --- Active Players Tracking ---
+        function setupPresence() {
+            if (useLocalLeaderboard || !database) {
+                console.log('📡 Active players tracking: Using local mode (no Firebase)');
+                document.getElementById('activePlayersCount').textContent = '1';
+                return;
+            }
+            
+            try {
+                // Create presence reference for this player
+                presenceRef = database.ref('presence/' + playerId);
+                activePlayersRef = database.ref('presence');
+                
+                // Set player as online
+                const presenceData = {
+                    playerName: playerName,
+                    playerId: playerId,
+                    lastActive: firebase.database.ServerValue.TIMESTAMP,
+                    status: 'online'
+                };
+                
+                presenceRef.set(presenceData);
+                
+                // Update last active every 30 seconds
+                const updateInterval = setInterval(() => {
+                    if (presenceRef) {
+                        presenceRef.update({
+                            lastActive: firebase.database.ServerValue.TIMESTAMP
+                        });
+                    }
+                }, 30000);
+                
+                // Set up automatic cleanup on disconnect
+                presenceRef.onDisconnect().remove();
+                
+                // Listen for active players count
+                activePlayersRef.on('value', (snapshot) => {
+                    const now = Date.now();
+                    let activeCount = 0;
+                    
+                    snapshot.forEach((childSnapshot) => {
+                        const data = childSnapshot.val();
+                        // Consider active if last active within 2 minutes
+                        if (now - data.lastActive < 120000) {
+                            activeCount++;
+                        }
+                    });
+                    
+                    document.getElementById('activePlayersCount').textContent = activeCount;
+                    console.log(`📡 Active players: ${activeCount}`);
+                });
+                
+                // Clean up on page unload
+                window.addEventListener('beforeunload', () => {
+                    if (presenceRef) {
+                        presenceRef.remove();
+                    }
+                    clearInterval(updateInterval);
+                });
+                
+                console.log('✅ Active players tracking enabled');
+            } catch (error) {
+                console.error('❌ Error setting up presence:', error);
+                document.getElementById('activePlayersCount').textContent = '?';
+            }
+        }
+        
+        function updatePresenceStatus(status) {
+            if (presenceRef && !useLocalLeaderboard) {
+                presenceRef.update({
+                    status: status,
+                    lastActive: firebase.database.ServerValue.TIMESTAMP
+                });
+            }
+        }
+        
+        // Get list of active players
+        async function getActivePlayers() {
+            if (useLocalLeaderboard || !database) {
+                return [{playerName: playerName, status: 'online'}];
+            }
+            
+            try {
+                const snapshot = await database.ref('presence').once('value');
+                const players = [];
+                const now = Date.now();
+                
+                snapshot.forEach((childSnapshot) => {
+                    const data = childSnapshot.val();
+                    // Only include players active within last 2 minutes
+                    if (now - data.lastActive < 120000) {
+                        players.push({
+                            playerName: data.playerName,
+                            playerId: data.playerId,
+                            status: data.status,
+                            lastActive: new Date(data.lastActive).toLocaleTimeString()
+                        });
+                    }
+                });
+                
+                return players;
+            } catch (error) {
+                console.error('Error getting active players:', error);
+                return [];
+            }
+        }
+        
+        // View active players in console
+        window.viewActivePlayers = async function() {
+            const players = await getActivePlayers();
+            console.log('═══════════════════════════════');
+            console.log('🟢 ACTIVE PLAYERS');
+            console.log('═══════════════════════════════');
+            if (players.length === 0) {
+                console.log('No active players');
+            } else {
+                players.forEach((player, idx) => {
+                    console.log(`${idx + 1}. ${player.playerName} - ${player.status} (Last: ${player.lastActive})`);
+                });
+            }
+            console.log('═══════════════════════════════');
+            console.log(`Total: ${players.length} player(s) online`);
+        };
+        
         // --- Player Management ---
         function generatePlayerId() {
             const id = 'player_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -553,6 +811,9 @@
             playerName = name.trim();
             localStorage.setItem('flappyPlayerName', playerName);
             currentPlayerName.textContent = playerName;
+            
+            // Set up presence tracking
+            setupPresence();
         }
 
         function showNameEntry() {
@@ -640,6 +901,24 @@
                 leaderboardList.innerHTML = '<p class="text-gray-400 text-center">Loading leaderboard...</p>';
                 
                 let scores = [];
+                let activePlayerIds = new Set();
+                
+                // Get active players from presence
+                if (!useLocalLeaderboard && database) {
+                    try {
+                        const presenceSnapshot = await database.ref('presence').once('value');
+                        const now = Date.now();
+                        presenceSnapshot.forEach((childSnapshot) => {
+                            const data = childSnapshot.val();
+                            // Consider active if within last 2 minutes
+                            if (data && data.playerId && (now - data.lastActive < 120000)) {
+                                activePlayerIds.add(data.playerId);
+                            }
+                        });
+                    } catch (err) {
+                        console.warn('⚠️ Could not fetch presence data:', err);
+                    }
+                }
                 
                 // Load from local or Firebase
                 if (useLocalLeaderboard) {
@@ -666,7 +945,8 @@
                                 playerName: data.playerName,
                                 score: data.score,
                                 playerId: data.playerId,
-                                timestamp: data.timestamp || 0
+                                timestamp: data.timestamp || 0,
+                                isOnline: activePlayerIds.has(data.playerId)
                             });
                         }
                     });
@@ -696,6 +976,7 @@
                         const rank = index + 1;
                         const isCurrentPlayer = scoreData.playerId === playerId;
                         const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`;
+                        const onlineIndicator = scoreData.isOnline ? '<span class="text-green-400 text-xl" title="Online">●</span>' : '<span class="text-gray-600 text-xl" title="Offline">●</span>';
                         
                         const entry = document.createElement('div');
                         entry.className = `flex justify-between items-center p-3 rounded transition ${isCurrentPlayer ? 'bg-cyan-700 border-2 border-cyan-400' : 'bg-gray-700'}`;
@@ -703,6 +984,7 @@
                             <div class="flex items-center gap-2">
                                 <span class="text-2xl">${medal}</span>
                                 <span class="font-semibold text-white">${scoreData.playerName}</span>
+                                ${onlineIndicator}
                             </div>
                             <span class="text-yellow-400 font-bold text-xl">${scoreData.score}</span>
                         `;
@@ -942,6 +1224,9 @@
 
         // --- Game Setup ---
         function setup() {
+            // Update presence status
+            updatePresenceStatus('playing');
+            
             const dpr = window.devicePixelRatio || 1;
             const rect = canvas.getBoundingClientRect();
             canvas.width = rect.width * dpr;
@@ -1337,6 +1622,10 @@
         function endGame() {
             if (gameover) return; 
             gameover = true;
+            
+            // Update presence status
+            updatePresenceStatus('viewing_score');
+            
             playOutSound();
             
             // Create collision explosion effect
