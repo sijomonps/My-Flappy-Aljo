@@ -396,12 +396,14 @@
         // PIPE_GAP is now configured in the DEVELOPER CONFIGURATION section above
         const GRAVITY = 0.25; 
         const FLAP_STRENGTH = -7.5; 
-        const SPEED = 2.0; 
+        const SPEED = 2.9; 
         const GROUND_HEIGHT = 100;
         const CLOUD_SPEED = 0.5;
 
         // --- Game State ---
         let bird, pipes, score, highScore, gameover, frame;
+        let lastTime = 0; // For delta time calculation
+        let deltaTime = 0; // Time since last frame
         
         // --- Player State ---
         let playerName = localStorage.getItem('flappyPlayerName') || '';
@@ -737,12 +739,12 @@
             }
         }
 
-        function updateParticles() {
+        function updateParticles(timeScale = 1) {
             particles = particles.filter(p => {
-                p.x += p.vx;
-                p.y += p.vy;
-                p.vy += 0.2; // Gravity
-                p.life -= 0.02;
+                p.x += p.vx * timeScale;
+                p.y += p.vy * timeScale;
+                p.vy += 0.2 * timeScale; // Gravity
+                p.life -= 0.02 * timeScale;
                 return p.life > 0;
             });
         }
@@ -775,16 +777,16 @@
             }
         }
 
-        function updateBackground() {
+        function updateBackground(timeScale = 1) {
             if (gameover) return; // Freeze background on game over
             const w = canvas.logicalWidth;
-            groundOffset -= SPEED;
+            groundOffset -= SPEED * timeScale;
             if (groundOffset <= -w) {
                 groundOffset = 0;
             }
 
             clouds.forEach(cloud => {
-                cloud.x -= CLOUD_SPEED;
+                cloud.x -= CLOUD_SPEED * timeScale;
                 if (cloud.x + cloud.radius * 2 < 0) {
                     cloud.x = w + cloud.radius * 2;
                     cloud.y = Math.random() * (canvas.logicalHeight / 2) + 20;
@@ -876,6 +878,8 @@
             highScore = localStorage.getItem('flappyHighScore') || 0;
             gameover = false;
             frame = 0;
+            lastTime = 0; // Reset delta time tracking
+            deltaTime = 0; // Reset delta time
             
             // Reset seed for consistent pipe generation every game
             seed = 12345;
@@ -915,8 +919,17 @@
         }
 
         // --- Game Loop ---
-        function gameLoop() {
+        function gameLoop(currentTime = 0) {
             if (gameover) return;
+            
+            // Calculate delta time (time since last frame in seconds)
+            if (lastTime === 0) lastTime = currentTime;
+            deltaTime = (currentTime - lastTime) / 1000; // Convert to seconds
+            lastTime = currentTime;
+            
+            // Cap delta time to prevent huge jumps (e.g., when tab is inactive)
+            deltaTime = Math.min(deltaTime, 0.1);
+            
             update();
             draw();
             frame++;
@@ -925,8 +938,11 @@
 
         // --- Update Logic ---
         function update() {
-            bird.velocity += GRAVITY;
-            bird.y += bird.velocity;
+            // Use 60 FPS as baseline (1/60 = 0.0166... seconds per frame)
+            const timeScale = deltaTime > 0 ? deltaTime / (1/60) : 1;
+            
+            bird.velocity += GRAVITY * timeScale;
+            bird.y += bird.velocity * timeScale;
 
             if (bird.velocity < 0) {
                 bird.rotation = -0.3; 
@@ -969,7 +985,7 @@
             }
 
             pipes.forEach(pipe => {
-                pipe.x -= SPEED;
+                pipe.x -= SPEED * timeScale;
 
                 // Collision detection
                 const birdLeft = bird.x - bird.width / 2;
