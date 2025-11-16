@@ -417,6 +417,7 @@
         let pipesPassed = 0;
         let totalFlaps = 0;
         let gameHash = '';
+        let isChangingName = false; // Flag to track if changing name from game over
         
         // Simple hash function for integrity checking
         function simpleHash(str) {
@@ -803,13 +804,43 @@
             return id;
         }
 
-        function savePlayerName(name) {
+        async function savePlayerName(name) {
             playerName = name.trim();
             localStorage.setItem('flappyPlayerName', playerName);
             currentPlayerName.textContent = playerName;
             
-            // Set up presence tracking
-            setupPresence();
+            // Update existing leaderboard entry with new name (if exists)
+            if (!useLocalLeaderboard && database) {
+                try {
+                    const leaderboardRef = database.ref('leaderboard/' + playerId);
+                    const snapshot = await leaderboardRef.once('value');
+                    const existingData = snapshot.val();
+                    
+                    if (existingData) {
+                        // Update the name while keeping the score
+                        await leaderboardRef.update({
+                            playerName: playerName
+                        });
+                        console.log('✅ Leaderboard name updated to:', playerName);
+                    }
+                } catch (error) {
+                    console.error('Error updating leaderboard name:', error);
+                }
+            }
+            
+            // Remove old presence before setting up new one
+            if (presenceRef && !useLocalLeaderboard) {
+                presenceRef.remove().then(() => {
+                    // Set up presence tracking with new name
+                    setupPresence();
+                }).catch((error) => {
+                    console.error('Error removing old presence:', error);
+                    setupPresence();
+                });
+            } else {
+                // Set up presence tracking
+                setupPresence();
+            }
         }
 
         function showNameEntry() {
@@ -857,20 +888,19 @@
             }
             
             try {
-                // Create a unique key based on player name (case-insensitive)
-                const playerKey = playerName.toLowerCase().replace(/[^a-z0-9]/g, '_');
-                const leaderboardRef = database.ref('leaderboard/' + playerKey);
+                // Use playerId as the key so same player can update their name
+                const leaderboardRef = database.ref('leaderboard/' + playerId);
                 
-                // Check if this player name already exists
+                // Check if this player already has a score
                 const snapshot = await leaderboardRef.once('value');
                 const existingData = snapshot.val();
                 const currentBest = existingData ? existingData.score : 0;
                 
-                // Only save if this is a new high score for this player name
+                // Only save if this is a new high score for this player
                 if (score > currentBest) {
                     const timestamp = Date.now();
                     const scoreData = {
-                        playerName: playerName, // Keep original capitalization
+                        playerName: playerName, // Keep current name (can be updated)
                         score: score,
                         timestamp: timestamp,
                         playerId: playerId
@@ -878,7 +908,7 @@
                     
                     console.log(`☁️ ${playerName}: New high score! ${currentBest} → ${score}`);
                     
-                    // Save to leaderboard (one entry per unique player name)
+                    // Save to leaderboard (one entry per playerId, name can change)
                     await leaderboardRef.set(scoreData);
                     console.log("✅ Leaderboard updated in Firebase");
                 } else {
@@ -1728,7 +1758,18 @@
             if (name.length > 0) {
                 savePlayerName(name);
                 hideNameEntry();
-                startScreen.classList.remove('hidden');
+                
+                if (isChangingName) {
+                    // Return to game over screen if changing name
+                    isChangingName = false;
+                    gameOverScreen.classList.remove('hidden');
+                    gameOverScreen.classList.add('flex');
+                    // Reload leaderboard to show updated name
+                    loadLeaderboard();
+                } else {
+                    // First time setup, go to start screen
+                    startScreen.classList.remove('hidden');
+                }
             } else {
                 alert('Please enter a name!');
             }
@@ -1741,6 +1782,7 @@
         });
 
         changeNameButton.addEventListener('click', () => {
+            isChangingName = true;
             gameOverScreen.classList.add('hidden');
             gameOverScreen.classList.remove('flex');
             showNameEntry();
