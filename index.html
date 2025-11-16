@@ -1287,6 +1287,10 @@
             deltaTime = 0; // Reset delta time
             timeSinceLastPipe = 0; // Reset pipe spawn timer
             
+            // Reset bird image flags
+            showPassImage = false;
+            showHitImage = false;
+            
             // Anti-cheat: Initialize integrity tracking
             gameStartTime = Date.now();
             pipesPassed = 0;
@@ -1371,6 +1375,13 @@
             if (bird.y + bird.height / 2 > canvas.logicalHeight - GROUND_HEIGHT) {
                 bird.y = canvas.logicalHeight - GROUND_HEIGHT - bird.height / 2;
                 bird.velocity = 0;
+                
+                // Show hit image (if configured)
+                if (birdHitImage) {
+                    showHitImage = true;
+                    showPassImage = false;
+                }
+                
                 return endGame();
             }
             // Sky collision
@@ -1649,6 +1660,12 @@
         function endGame() {
             if (gameover) return; 
             gameover = true;
+            
+            // Show hit image on game over (if configured)
+            if (birdHitImage) {
+                showHitImage = true;
+                showPassImage = false;
+            }
             
             // Update presence status
             updatePresenceStatus('viewing_score');
