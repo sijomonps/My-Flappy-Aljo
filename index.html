@@ -214,6 +214,11 @@
                         </div>
                     </div>
                     
+                    <!-- Play Again Button (moved here for better accessibility) -->
+                    <button id="restartButton" class="button-hover bg-green-500 hover:bg-green-600 text-white font-bold py-5 px-10 rounded-xl text-xl shadow-2xl w-full mb-6 animate-fadeIn active:scale-95 transition-transform" style="animation-delay: 0.3s; min-height: 64px; touch-action: manipulation;">
+                        🔄 Play Again
+                    </button>
+                    
                     <!-- Leaderboard -->
                     <div id="leaderboardContainer" class="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-6 mb-6 w-full animate-fadeIn shadow-2xl border-2 border-gray-700" style="animation-delay: 0.4s;">
                         <div class="flex items-center justify-between mb-4">
@@ -230,26 +235,16 @@
                         </div>
                     </div>
                     
-                    <!-- Action Buttons -->
-                    <div class="flex flex-col sm:flex-row gap-3 w-full justify-center">
-                        <button id="restartButton" class="button-hover bg-green-500 hover:bg-green-600 text-white font-bold py-4 px-8 rounded-xl text-lg shadow-lg flex-1 sm:flex-none">
-                            🔄 Play Again
-                        </button>
-                        <button id="changeNameButton" class="button-hover bg-purple-500 hover:bg-purple-600 text-white font-bold py-4 px-8 rounded-xl text-lg shadow-lg flex-1 sm:flex-none">
-                            ✏️ Change Name
-                        </button>
-                    </div>
+                    <!-- Change Name Button -->
+                    <button id="changeNameButton" class="button-hover bg-purple-500 hover:bg-purple-600 text-white font-bold py-4 px-8 rounded-xl text-lg shadow-lg w-full active:scale-95 transition-transform" style="touch-action: manipulation;">
+                        ✏️ Change Name
+                    </button>
                 </div>
             </div>
 
             <!-- Score Display -->
             <div id="scoreDisplay" class="absolute top-4 left-1/2 -translate-x-1/2 text-4xl md:text-6xl font-bold text-white" style="text-shadow: 3px 3px 6px rgba(0,0,0,0.7); transition: transform 0.2s ease-out;">
                 0
-            </div>
-            
-            <!-- Distance Display -->
-            <div id="distanceDisplay" class="d-none absolute top-16 md:top-24 left-1/2 -translate-x-1/2 text-lg md:text-2xl font-semibold text-cyan-300 hidden bg-black bg-opacity-40 px-3 py-1 rounded-lg" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.5); transition: all 0.3s ease;">
-                <span class="text-xs md:text-sm">📏 Next: </span><span id="distanceValue">0</span><span class="text-xs md:text-sm">m</span>
             </div>
             
             <!-- Player Name Display -->
@@ -367,8 +362,11 @@
         // Paths to your assets. Use "" for default bird/sounds.
         // Recommended: Use relative paths (e.g., "assets/bird.png")
         const BIRD_IMAGE_PATH = "./Tools/face-remo.png";
+        const BIRD_PASS_IMAGE_PATH = "./Tools/dominic.jpeg";  // e.g., "./Tools/bird-happy.png" - Bird image shown briefly when passing through pipes
+        const BIRD_HIT_IMAGE_PATH = "./Tools/game_over_bird.jpeg";  // e.g., "./Tools/bird-hurt.png" - Bird image shown when hitting a pipe
         const FLAP_SOUND_PATH = "./Tools/falp SOund Final.mp3"; // e.g., "audio/my-flap.wav"
         const OUT_SOUND_PATH = "./Tools/out-Fina.mp3";  // e.g., "audio/my-out.mp3"
+        const PASS_SOUND_PATH = "./Tools/sucess_sound.mp3";  // e.g., "audio/pass.mp3" - Sound when passing through a pipe
         
         // Game Difficulty Settings
         const PIPE_GAP = 250; // Gap between top and bottom pipes (smaller = harder)
@@ -393,8 +391,6 @@
         const scoreDisplay = document.getElementById('scoreDisplay');
         const finalScore = document.getElementById('finalScore');
         const highScoreDisplay = document.getElementById('highScore');
-        const distanceDisplay = document.getElementById('distanceDisplay');
-        const distanceValue = document.getElementById('distanceValue');
         const playerNameDisplay = document.getElementById('playerNameDisplay');
         const currentPlayerName = document.getElementById('currentPlayerName');
         const leaderboardList = document.getElementById('leaderboardList');
@@ -999,11 +995,16 @@
 
         // --- Custom Assets ---
         let birdImage = null;
+        let birdPassImage = null; // Alternative bird image when passing pipes
+        let birdHitImage = null; // Alternative bird image when hitting pipes
         let flapAudio = null;
         let outAudio = null;
+        let passAudio = null;
+        let showPassImage = false; // Flag to show pass image temporarily
+        let showHitImage = false; // Flag to show hit image when collision occurs
 
         // --- Default Synths (Tone.js) ---
-        let flapSynth, outSynth;
+        let flapSynth, outSynth, passSynth;
 
         function initAudio() {
             if (!flapSynth) {
@@ -1020,6 +1021,13 @@
                 }).toDestination();
                 outSynth.volume.value = 5; // Louder
             }
+            if (!passSynth) {
+                passSynth = new Tone.Synth({
+                    oscillator: { type: 'triangle' },
+                    envelope: { attack: 0.005, decay: 0.1, sustain: 0, release: 0.1 }
+                }).toDestination();
+                passSynth.volume.value = -5; // Softer than flap
+            }
         }
 
         // --- Asset Handlers ---
@@ -1028,11 +1036,22 @@
                 birdImage = new Image();
                 birdImage.src = BIRD_IMAGE_PATH;
             }
+            if (BIRD_PASS_IMAGE_PATH) {
+                birdPassImage = new Image();
+                birdPassImage.src = BIRD_PASS_IMAGE_PATH;
+            }
+            if (BIRD_HIT_IMAGE_PATH) {
+                birdHitImage = new Image();
+                birdHitImage.src = BIRD_HIT_IMAGE_PATH;
+            }
             if (FLAP_SOUND_PATH) {
                 flapAudio = new Audio(FLAP_SOUND_PATH);
             }
             if (OUT_SOUND_PATH) {
                 outAudio = new Audio(OUT_SOUND_PATH);
+            }
+            if (PASS_SOUND_PATH) {
+                passAudio = new Audio(PASS_SOUND_PATH);
             }
         }
 
@@ -1059,6 +1078,20 @@
                 initAudio(); 
                 outSynth.triggerRelease();
                 outSynth.triggerAttackRelease("4n", Tone.now());
+            }
+        }
+
+        function playPassSound() {
+            if (Tone.context.state !== 'running') {
+                Tone.start();
+            }
+            if (passAudio) {
+                passAudio.currentTime = 0;
+                passAudio.play().catch(e => console.error("Error playing pass sound:", e));
+            } else {
+                initAudio();
+                passSynth.triggerRelease();
+                passSynth.triggerAttackRelease("E5", "8n", Tone.now()); // Pleasant tone when passing pipe
             }
         }
 
@@ -1287,7 +1320,6 @@
             setTimeout(() => {
                 startScreen.classList.add('hidden');
                 scoreDisplay.classList.remove('hidden');
-                distanceDisplay.classList.remove('hidden');
                 scoreDisplay.style.animation = 'slideDown 0.5s ease-out';
             }, 300);
             
@@ -1393,6 +1425,12 @@
                 if (horizontalCollision && (topCollision || bottomCollision)) {
                     collisionDetected = true;
                     console.error('🚫 Pipe collision detected!');
+                    
+                    // Show hit image (if configured)
+                    if (birdHitImage) {
+                        showHitImage = true;
+                        showPassImage = false; // Override pass image if showing
+                    }
                 }
 
                 // Score
@@ -1408,6 +1446,17 @@
                     
                     score++;
                     scoreDisplay.textContent = score;
+                    
+                    // Play pass sound
+                    playPassSound();
+                    
+                    // Show pass image temporarily (if configured)
+                    if (birdPassImage) {
+                        showPassImage = true;
+                        setTimeout(() => {
+                            showPassImage = false;
+                        }, 1500); // Show for 1.5 seconds
+                    }
                     
                     // Create particle effect at score location
                     createScoreParticles(canvas.logicalWidth / 2, 60);
@@ -1428,39 +1477,9 @@
             // Remove off-screen pipes
             pipes = pipes.filter(pipe => pipe.x + PIPE_WIDTH > 0);
 
-            // Update distance to next pipe
-            updateDistance();
-
             // Update background and particles
             updateBackground();
             updateParticles();
-        }
-
-        // --- Distance Calculation ---
-        function updateDistance() {
-            // Find the next pipe (first pipe that hasn't been passed)
-            const nextPipe = pipes.find(pipe => !pipe.passed && pipe.x + PIPE_WIDTH >= bird.x);
-            
-            if (nextPipe) {
-                // Calculate distance from bird to the center of the pipe gap
-                const pipeCenter = nextPipe.x + PIPE_WIDTH / 2;
-                const distance = Math.max(0, Math.round(pipeCenter - bird.x));
-                distanceValue.textContent = distance;
-                
-                // Change color based on distance (visual warning)
-                if (distance < 50) {
-                    distanceDisplay.style.color = '#ef4444'; // Red when very close
-                    distanceDisplay.style.transform = 'translate(-50%, 0) scale(1.1)';
-                } else if (distance < 100) {
-                    distanceDisplay.style.color = '#f59e0b'; // Orange when close
-                    distanceDisplay.style.transform = 'translate(-50%, 0) scale(1.05)';
-                } else {
-                    distanceDisplay.style.color = '#06b6d4'; // Cyan when far
-                    distanceDisplay.style.transform = 'translate(-50%, 0) scale(1)';
-                }
-            } else {
-                distanceValue.textContent = '0';
-            }
         }
 
         // --- Draw Logic ---
@@ -1557,9 +1576,17 @@
             ctx.translate(bird.x, bird.y);
             ctx.rotate(bird.rotation);
             
-            if (birdImage) {
+            // Use hit image if collision occurred (highest priority), pass image if just scored, otherwise normal image
+            let currentBirdImage = birdImage;
+            if (showHitImage && birdHitImage) {
+                currentBirdImage = birdHitImage;
+            } else if (showPassImage && birdPassImage) {
+                currentBirdImage = birdPassImage;
+            }
+            
+            if (currentBirdImage) {
                 // Calculate scale to fit within BIRD_WIDTH/HEIGHT while maintaining aspect ratio
-                const aspectRatio = birdImage.width / birdImage.height;
+                const aspectRatio = currentBirdImage.width / currentBirdImage.height;
                 let drawWidth = BIRD_WIDTH;
                 let drawHeight = BIRD_HEIGHT;
 
@@ -1578,14 +1605,14 @@
                 ctx.shadowOffsetX = 3;
                 ctx.shadowOffsetY = 3;
                 
-                ctx.drawImage(birdImage, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+                ctx.drawImage(currentBirdImage, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
                 
                 // Add subtle glow
                 ctx.shadowColor = 'rgba(255, 255, 255, 0.3)';
                 ctx.shadowBlur = 10;
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 0;
-                ctx.drawImage(birdImage, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+                ctx.drawImage(currentBirdImage, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
             } else {
                 // Default bird with gradient and shadow
                 ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
@@ -1652,7 +1679,6 @@
             // Animate game over screen appearance
             setTimeout(() => {
                 scoreDisplay.classList.add('hidden');
-                distanceDisplay.classList.add('hidden');
                 playerNameDisplay.classList.add('hidden');
                 gameOverScreen.classList.remove('hidden');
                 gameOverScreen.classList.add('flex');
@@ -1773,7 +1799,6 @@
             drawBackground(canvas.logicalWidth, canvas.logicalHeight);
 
             scoreDisplay.classList.add('hidden');
-            distanceDisplay.classList.add('hidden');
             playerNameDisplay.classList.add('hidden');
             gameOverScreen.classList.add('hidden');
             gameOverScreen.classList.remove('flex');
