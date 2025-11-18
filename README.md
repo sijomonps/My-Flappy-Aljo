@@ -1,4 +1,4 @@
-# Flappy Aljo
+# My Flappy Aljo
 
 A fun little Flappy Bird–style game made for our classmates!  
 Instead of the normal bird, we used **our friend’s face** and added **his funny sound** to make the game even more entertaining.  
