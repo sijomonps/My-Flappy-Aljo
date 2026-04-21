@@ -271,6 +271,7 @@
             image-rendering: crisp-edges;
             touch-action: none;
             display: block;
+            will-change: transform;
         }
 
         /* ===== LAYOUT ===== */
@@ -339,21 +340,37 @@
             border: none;
             cursor: pointer;
             border-radius: var(--radius-lg);
-            transition: transform 0.2s cubic-bezier(.34, 1.56, .64, 1), box-shadow 0.25s ease, filter 0.2s ease;
+            transition: transform 0.18s cubic-bezier(.34, 1.56, .64, 1), box-shadow 0.22s ease, filter 0.2s ease;
             -webkit-tap-highlight-color: transparent;
             touch-action: manipulation;
             min-height: 52px;
             padding: 14px 28px;
             font-size: 1.05rem;
             letter-spacing: 0.01em;
+            overflow: hidden;
+        }
+
+        .btn::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(120deg, transparent 20%, rgba(255, 255, 255, 0.22) 48%, transparent 78%);
+            transform: translateX(-140%);
+            transition: transform 0.45s ease;
+            pointer-events: none;
         }
 
         .btn:hover {
             transform: translateY(-2px) scale(1.03);
         }
 
+        .btn:hover::before {
+            transform: translateX(140%);
+        }
+
         .btn:active {
-            transform: translateY(1px) scale(0.97);
+            transform: translateY(1px) scale(0.96);
+            filter: brightness(0.96);
         }
 
         .btn-primary {
@@ -400,6 +417,8 @@
         .overlay {
             backdrop-filter: blur(12px) saturate(1.2);
             -webkit-backdrop-filter: blur(12px) saturate(1.2);
+            transition: opacity 0.3s ease, transform 0.3s cubic-bezier(.22, 1, .36, 1);
+            will-change: opacity, transform;
         }
 
         /* ===== INPUT ===== */
@@ -479,6 +498,7 @@
             font-variant-numeric: tabular-nums;
             text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6), 0 0 30px rgba(0, 0, 0, 0.3);
             letter-spacing: 0.02em;
+            transition: transform 0.18s ease, text-shadow 0.2s ease;
         }
 
         /* ===== BADGE (online indicator) ===== */
@@ -532,6 +552,25 @@
 
         .new-high-score {
             animation: newHighScore 1.5s ease-in-out infinite;
+            filter: drop-shadow(0 0 16px rgba(251, 191, 36, 0.5));
+        }
+
+        @keyframes scorePop {
+            0% {
+                transform: translate(-50%, 0) scale(1);
+            }
+
+            45% {
+                transform: translate(-50%, 0) scale(1.28);
+            }
+
+            100% {
+                transform: translate(-50%, 0) scale(1);
+            }
+        }
+
+        .score-pop {
+            animation: scorePop 0.2s ease-out;
         }
 
         /* ===== GAME OVER SCROLL ===== */
@@ -985,7 +1024,18 @@
         </div>
     </div>
 
-    <script>
+    <script type="module">
+        import {
+            clamp as clampUtil,
+            configureCanvasSize as configureCanvasSizeUtil,
+            drawRoundedRect as drawRoundedRectUtil,
+            ensureImageAsset,
+            ensureAudioAsset
+        } from './utils.js';
+        import { ParticleSystem } from './particles.js';
+        import { ensureRenderCache } from './render.js';
+        import { computeTimeScale, shouldSpawnPipeDistance, getNextPipeX, createTextUpdater } from './game.js';
+
         // --- FIREBASE CONFIGURATION ---
 
         // Replace these with your Firebase project credentials
@@ -1092,7 +1142,7 @@
 
         // Game Difficulty Settings
         const PIPE_GAP = 250; // Gap between top and bottom pipes (smaller = harder)
-        const PIPE_SPACING = 440; // Distance between pipes (frames at 60fps: 240 = 4 seconds, 180 = 3 seconds, 120 = 2 seconds)
+        const PIPE_SPACING_DISTANCE = 440; // Fixed horizontal distance between consecutive pipes
         // --- END CONFIGURATION ---
 
 
@@ -1116,6 +1166,7 @@
         const playerNameDisplay = document.getElementById('playerNameDisplay');
         const currentPlayerName = document.getElementById('currentPlayerName');
         const leaderboardList = document.getElementById('leaderboardList');
+        const setScoreDisplayText = createTextUpdater(scoreDisplay);
 
         // --- Game Constants ---
         const BIRD_WIDTH = 90; // "very big" and square
@@ -1127,12 +1178,28 @@
         const SPEED = 2.9;
         const GROUND_HEIGHT = 100;
         const CLOUD_SPEED = 0.5;
+        const PARALLAX_FAR_SPEED = 0.22;
+        const PARALLAX_MID_SPEED = 0.4;
 
         // --- Game State ---
         let bird, pipes, score, highScore, gameover, frame;
         let lastTime = 0; // For delta time calculation
         let deltaTime = 0; // Time since last frame
-        let timeSinceLastPipe = 0; // Accumulated time for pipe spawning
+        let displayedScore = 0;
+
+        // --- Visual State ---
+        let deathSlowMoTimer = 0;
+        let trailSpawnTimer = 0;
+        let birdGlow = 0;
+        let nearMissFlash = 0;
+        let scorePopTimeout = null;
+
+        const camera = {
+            x: 0,
+            y: 0,
+            kick: 0,
+            shake: 0
+        };
 
         // Anti-cheat: Track game integrity
         let gameStartTime = 0;
@@ -1149,6 +1216,36 @@
                 hash = hash & hash; // Convert to 32bit integer
             }
             return Math.abs(hash).toString(36);
+        }
+
+        function clamp(value, min, max) {
+            return clampUtil(value, min, max);
+        }
+
+        function configureCanvasSize() {
+            configureCanvasSizeUtil(canvas, ctx);
+        }
+
+        function updateCamera(timeScale = 1) {
+            const damp = Math.pow(0.86, timeScale);
+            camera.x *= damp;
+            camera.y *= damp;
+
+            camera.y += camera.kick;
+            camera.kick *= Math.pow(0.45, timeScale);
+
+            if (camera.shake > 0.001) {
+                const shakePower = camera.shake * 5;
+                camera.x += (Math.random() - 0.5) * shakePower;
+                camera.y += (Math.random() - 0.5) * shakePower;
+                camera.shake *= Math.pow(0.84, timeScale);
+            } else {
+                camera.shake = 0;
+            }
+        }
+
+        function drawRoundedRect(x, y, width, height, radius) {
+            drawRoundedRectUtil(ctx, x, y, width, height, radius);
         }
 
         // Validate score integrity
@@ -1256,10 +1353,13 @@
         }
 
         // --- Background State ---
-        let groundOffset, clouds;
+        let groundOffset, clouds, farHills, midObjects, groundBlades, dirtDots;
 
         // --- Particle Effects ---
-        let particles = [];
+        const particleSystem = new ParticleSystem(150);
+
+        // --- Render Cache ---
+        const renderCache = {};
 
         // --- Seeded Random for Consistent Levels ---
         let seed = 12345; // Fixed seed for consistent pipe generation
@@ -1633,27 +1733,8 @@
 
         // --- Asset Handlers ---
         function loadDeveloperAssets() {
-            if (BIRD_IMAGE_PATH) {
-                birdImage = new Image();
-                birdImage.src = BIRD_IMAGE_PATH;
-            }
-            if (BIRD_PASS_IMAGE_PATH) {
-                birdPassImage = new Image();
-                birdPassImage.src = BIRD_PASS_IMAGE_PATH;
-            }
-            if (BIRD_HIT_IMAGE_PATH) {
-                birdHitImage = new Image();
-                birdHitImage.src = BIRD_HIT_IMAGE_PATH;
-            }
-            if (FLAP_SOUND_PATH) {
-                flapAudio = new Audio(FLAP_SOUND_PATH);
-            }
-            if (OUT_SOUND_PATH) {
-                outAudio = new Audio(OUT_SOUND_PATH);
-            }
-            if (PASS_SOUND_PATH) {
-                passAudio = new Audio(PASS_SOUND_PATH);
-            }
+            // Load only the always-visible bird image up front.
+            birdImage = ensureImageAsset(birdImage, BIRD_IMAGE_PATH);
         }
 
         // --- Sound Players ---
@@ -1661,6 +1742,7 @@
             if (Tone.context.state !== 'running') {
                 Tone.start();
             }
+            flapAudio = ensureAudioAsset(flapAudio, FLAP_SOUND_PATH);
             if (flapAudio) {
                 flapAudio.currentTime = 0;
                 flapAudio.play().catch(e => console.error("Error playing flap sound:", e));
@@ -1672,6 +1754,7 @@
         }
 
         function playOutSound() {
+            outAudio = ensureAudioAsset(outAudio, OUT_SOUND_PATH);
             if (outAudio) {
                 outAudio.currentTime = 0;
                 outAudio.play().catch(e => console.error("Error playing out sound:", e));
@@ -1686,6 +1769,7 @@
             if (Tone.context.state !== 'running') {
                 Tone.start();
             }
+            passAudio = ensureAudioAsset(passAudio, PASS_SOUND_PATH);
             if (passAudio) {
                 passAudio.currentTime = 0;
                 passAudio.play().catch(e => console.error("Error playing pass sound:", e));
@@ -1698,79 +1782,46 @@
 
         // --- Particle Functions ---
         function createScoreParticles(x, y) {
-            for (let i = 0; i < 10; i++) {
-                particles.push({
-                    x: x,
-                    y: y,
-                    vx: (Math.random() - 0.5) * 4,
-                    vy: (Math.random() - 0.5) * 4 - 2,
-                    life: 1.0,
-                    size: Math.random() * 4 + 2,
-                    color: `hsl(${Math.random() * 60 + 150}, 100%, 50%)` // Green to cyan
-                });
-            }
+            particleSystem.spawnScoreBurst(x, y);
         }
 
         function createFlapParticles(x, y) {
-            // Small particles when bird flaps
-            for (let i = 0; i < 3; i++) {
-                particles.push({
-                    x: x,
-                    y: y + 20,
-                    vx: (Math.random() - 0.5) * 2,
-                    vy: Math.random() * 2 + 1,
-                    life: 0.5,
-                    size: Math.random() * 3 + 1,
-                    color: 'rgba(255, 255, 255, 0.8)'
-                });
-            }
+            particleSystem.spawnFlapBurst(x, y);
+        }
+
+        function createTrailParticle(x, y, velocity) {
+            particleSystem.spawnTrail(x, y, velocity);
         }
 
         function createCollisionParticles(x, y) {
-            // Explosion effect on collision
-            for (let i = 0; i < 20; i++) {
-                const angle = (Math.PI * 2 * i) / 20;
-                particles.push({
-                    x: x,
-                    y: y,
-                    vx: Math.cos(angle) * 5,
-                    vy: Math.sin(angle) * 5,
-                    life: 1.0,
-                    size: Math.random() * 5 + 2,
-                    color: `hsl(${Math.random() * 60}, 100%, 50%)` // Red to yellow
-                });
-            }
+            particleSystem.spawnCollisionBurst(x, y);
+        }
+
+        function createNearMissParticles(x, y) {
+            particleSystem.spawnNearMissBurst(x, y);
         }
 
         function updateParticles(timeScale = 1) {
-            particles = particles.filter(p => {
-                p.x += p.vx * timeScale;
-                p.y += p.vy * timeScale;
-                p.vy += 0.2 * timeScale; // Gravity
-                p.life -= 0.02 * timeScale;
-                return p.life > 0;
-            });
+            particleSystem.update(timeScale);
         }
 
         function drawParticles() {
-            particles.forEach(p => {
-                ctx.save();
-                ctx.globalAlpha = p.life;
-                ctx.fillStyle = p.color;
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
-            });
+            particleSystem.draw(ctx);
         }
 
         // --- Background Functions ---
         function initBackground() {
             groundOffset = 0;
             clouds = [];
-            particles = [];
+            farHills = [];
+            midObjects = [];
+            groundBlades = [];
+            dirtDots = [];
+            particleSystem.reset();
+
             const w = canvas.logicalWidth || canvas.width;
             const h = canvas.logicalHeight || canvas.height;
+
             for (let i = 0; i < 5; i++) {
                 clouds.push({
                     x: Math.random() * w,
@@ -1778,14 +1829,48 @@
                     radius: Math.random() * 20 + 20 // 20-40px radius
                 });
             }
+
+            for (let i = 0; i < 7; i++) {
+                farHills.push({
+                    x: (i * w) / 3.2,
+                    width: Math.random() * 160 + 170,
+                    height: Math.random() * 75 + 55
+                });
+            }
+
+            for (let i = 0; i < 10; i++) {
+                midObjects.push({
+                    x: (i * w) / 2.2,
+                    width: Math.random() * 110 + 110,
+                    height: Math.random() * 70 + 30
+                });
+            }
+
+            for (let i = 0; i < 70; i++) {
+                groundBlades.push({
+                    x: Math.random() * (w * 2),
+                    y: Math.random() * 8,
+                    height: Math.random() * 8 + 4,
+                    phase: Math.random() * Math.PI * 2
+                });
+            }
+
+            for (let i = 0; i < 45; i++) {
+                dirtDots.push({
+                    x: Math.random() * (w * 2),
+                    y: Math.random() * (GROUND_HEIGHT - 30) + 24,
+                    radius: Math.random() * 2 + 0.8
+                });
+            }
         }
 
-        function updateBackground(timeScale = 1) {
-            if (gameover) return; // Freeze background on game over
+        function updateBackground(timeScale = 1, ignoreFreeze = false) {
+            if (gameover && !ignoreFreeze) return; // Freeze background on game over
             const w = canvas.logicalWidth;
+
             groundOffset -= SPEED * timeScale;
             if (groundOffset <= -w) {
-                groundOffset = 0;
+                groundOffset += w;
             }
 
             clouds.forEach(cloud => {
@@ -1795,25 +1880,85 @@
                     cloud.y = Math.random() * (canvas.logicalHeight / 2) + 20;
                 }
             });
+
+            farHills.forEach(hill => {
+                hill.x -= SPEED * PARALLAX_FAR_SPEED * timeScale;
+                if (hill.x + hill.width < -40) {
+                    hill.x = w + Math.random() * w * 0.4;
+                    hill.width = Math.random() * 160 + 170;
+                    hill.height = Math.random() * 75 + 55;
+                }
+            });
+
+            midObjects.forEach(obj => {
+                obj.x -= SPEED * PARALLAX_MID_SPEED * timeScale;
+                if (obj.x + obj.width < -30) {
+                    obj.x = w + Math.random() * w * 0.3;
+                    obj.width = Math.random() * 110 + 110;
+                    obj.height = Math.random() * 70 + 30;
+                }
+            });
+
+            groundBlades.forEach(blade => {
+                blade.x -= SPEED * timeScale;
+                blade.phase += 0.045 * timeScale;
+                if (blade.x < -4) {
+                    blade.x += w * 2;
+                }
+            });
+
+            dirtDots.forEach(dot => {
+                dot.x -= SPEED * 0.92 * timeScale;
+                if (dot.x + dot.radius < 0) {
+                    dot.x += w * 2;
+                }
+            });
         }
 
-        function drawBackground(w, h) {
-            // Draw clouds with shadows and better rendering
+        function drawBackground(w, h, cachedRender = ensureRenderCache(renderCache, ctx, w, h, GROUND_HEIGHT, PIPE_WIDTH)) {
+            const horizonY = h - GROUND_HEIGHT - 20;
+
+            // Distant haze near horizon.
+            ctx.fillStyle = 'rgba(255,255,255,0.12)';
+            ctx.fillRect(0, horizonY - 120, w, 140);
+
+            // Far parallax hills.
+            farHills.forEach(hill => {
+                const baseY = h - GROUND_HEIGHT - 14;
+                ctx.fillStyle = 'rgba(4, 120, 87, 0.34)';
+
+                ctx.beginPath();
+                ctx.moveTo(hill.x, baseY);
+                ctx.quadraticCurveTo(hill.x + hill.width * 0.25, baseY - hill.height, hill.x + hill.width * 0.52, baseY - hill.height * 0.45);
+                ctx.quadraticCurveTo(hill.x + hill.width * 0.76, baseY - hill.height * 0.1, hill.x + hill.width, baseY);
+                ctx.closePath();
+                ctx.fill();
+            });
+
+            // Mid parallax silhouettes.
+            midObjects.forEach(obj => {
+                const baseY = h - GROUND_HEIGHT + 4;
+                ctx.fillStyle = 'rgba(15, 118, 110, 0.5)';
+
+                ctx.beginPath();
+                ctx.moveTo(obj.x, baseY);
+                ctx.quadraticCurveTo(obj.x + obj.width * 0.2, baseY - obj.height, obj.x + obj.width * 0.44, baseY - obj.height * 0.55);
+                ctx.quadraticCurveTo(obj.x + obj.width * 0.72, baseY - obj.height * 0.2, obj.x + obj.width, baseY);
+                ctx.closePath();
+                ctx.fill();
+            });
+
+            // Draw clouds with shadows and better rendering.
             clouds.forEach(cloud => {
                 ctx.save();
 
-                // Cloud shadow
-                ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
-                ctx.shadowBlur = 10;
-                ctx.shadowOffsetX = 2;
-                ctx.shadowOffsetY = 2;
+                // Cloud shadow (reduced blur for performance).
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.06)';
+                ctx.shadowBlur = 4;
+                ctx.shadowOffsetX = 1;
+                ctx.shadowOffsetY = 1;
 
-                // Cloud gradient for 3D effect
-                const cloudGradient = ctx.createRadialGradient(cloud.x, cloud.y, 0, cloud.x, cloud.y, cloud.radius * 1.5);
-                cloudGradient.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
-                cloudGradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.85)');
-                cloudGradient.addColorStop(1, 'rgba(240, 240, 240, 0.7)');
-                ctx.fillStyle = cloudGradient;
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.82)';
 
                 ctx.beginPath();
                 // Enhanced fluffy cloud shape
@@ -1826,34 +1971,27 @@
                 ctx.restore();
             });
 
-            // Draw ground with gradient and texture
-            const groundGradient = ctx.createLinearGradient(0, h - GROUND_HEIGHT, 0, h);
-            groundGradient.addColorStop(0, '#10b981'); // Green grass
-            groundGradient.addColorStop(0.15, '#059669'); // Darker green
-            groundGradient.addColorStop(0.15, '#d4a574'); // Light brown earth
-            groundGradient.addColorStop(1, '#a67c52'); // Darker brown
-
-            ctx.fillStyle = groundGradient;
+            // Draw ground with cached gradient.
+            ctx.fillStyle = cachedRender.groundGradient;
             ctx.fillRect(groundOffset, h - GROUND_HEIGHT, w, GROUND_HEIGHT);
             ctx.fillRect(groundOffset + w, h - GROUND_HEIGHT, w, GROUND_HEIGHT);
 
-            // Add grass texture with small blades
+            // Add grass texture with subtle animated sway.
             ctx.fillStyle = '#0d9488'; // Teal for grass variation
-            for (let i = 0; i < 50; i++) {
-                const x = (groundOffset + (i * w / 25)) % (w * 2);
-                const y = h - GROUND_HEIGHT + Math.random() * 5;
-                ctx.fillRect(x, y, 2, 8);
-            }
+            groundBlades.forEach(blade => {
+                const sway = Math.sin(((frame || 0) * 0.08) + blade.phase) * 0.8;
+                ctx.fillRect(blade.x + sway, h - GROUND_HEIGHT + blade.y, 2, blade.height);
+            });
 
-            // Add dirt texture
+            // Add dirt texture.
             ctx.fillStyle = 'rgba(139, 90, 43, 0.3)';
-            for (let i = 0; i < 30; i++) {
-                const x = (groundOffset + (i * w / 15)) % (w * 2);
-                const y = h - GROUND_HEIGHT + 20 + Math.random() * (GROUND_HEIGHT - 30);
+            dirtDots.forEach(dot => {
+                const x = dot.x;
+                const y = h - GROUND_HEIGHT + dot.y;
                 ctx.beginPath();
-                ctx.arc(x, y, Math.random() * 3 + 1, 0, Math.PI * 2);
+                ctx.arc(x, y, dot.radius, 0, Math.PI * 2);
                 ctx.fill();
-            }
+            });
         }
 
         // --- Game Setup ---
@@ -1861,13 +1999,7 @@
             // Update presence status
             updatePresenceStatus('playing');
 
-            const dpr = window.devicePixelRatio || 1;
-            const rect = canvas.getBoundingClientRect();
-            canvas.width = rect.width * dpr;
-            canvas.height = rect.height * dpr;
-            ctx.scale(dpr, dpr);
-            canvas.logicalWidth = rect.width;
-            canvas.logicalHeight = rect.height;
+            configureCanvasSize();
 
             initBackground(); // Initialize background elements
 
@@ -1877,16 +2009,34 @@
                 width: BIRD_WIDTH,
                 height: BIRD_HEIGHT,
                 velocity: 0,
-                rotation: 0
+                rotation: 0,
+                idlePhase: 0,
+                idleOffset: 0,
+                scaleX: 1,
+                scaleY: 1
             };
             pipes = [];
             score = 0;
+            displayedScore = 0;
             highScore = localStorage.getItem('flappyHighScore') || 0;
             gameover = false;
             frame = 0;
             lastTime = 0; // Reset delta time tracking
             deltaTime = 0; // Reset delta time
-            timeSinceLastPipe = 0; // Reset pipe spawn timer
+            deathSlowMoTimer = 0;
+            trailSpawnTimer = 0;
+            birdGlow = 0;
+            nearMissFlash = 0;
+            camera.x = 0;
+            camera.y = 0;
+            camera.kick = 0;
+            camera.shake = 0;
+
+            if (scorePopTimeout) {
+                clearTimeout(scorePopTimeout);
+                scorePopTimeout = null;
+            }
+            scoreDisplay.classList.remove('score-pop');
 
             // Reset bird image flags
             showPassImage = false;
@@ -1901,26 +2051,23 @@
             // Reset seed for consistent pipe generation every game
             seed = 12345;
 
-            // Spawn first pipe - further away on mobile for easier start
-            const isMobile = window.innerWidth <= 767;
-            const firstPipeDistance = isMobile ? 1.2 : 0.6; // Mobile: 120% screen width (off-screen), Desktop: 60%
-
+            // Spawn first pipe using the same distance-based system as all subsequent pipes.
             const dynamicPipeGap = Math.max(150, Math.min(PIPE_GAP, canvas.logicalHeight / 3));
             const minPipeHeight = 50;
             const maxPipeHeight = canvas.logicalHeight - dynamicPipeGap - minPipeHeight - GROUND_HEIGHT;
             const firstPipeHeight = seededRandom() * (maxPipeHeight - minPipeHeight) + minPipeHeight;
 
             pipes.push({
-                x: canvas.logicalWidth * firstPipeDistance, // Mobile gets more time to prepare
+                x: canvas.logicalWidth,
                 top: firstPipeHeight,
                 bottom: firstPipeHeight + dynamicPipeGap,
-                passed: false,
-                isFirstPipe: true // Mark as first pipe for mobile spacing logic
+                passed: false
             });
 
-            scoreDisplay.textContent = score;
+            setScoreDisplayText(0);
 
             // Smooth transition from start screen to game
+            startScreen.style.transform = 'translateY(8px) scale(0.98)';
             startScreen.style.opacity = '0';
             setTimeout(() => {
                 startScreen.classList.add('hidden');
@@ -1930,6 +2077,8 @@
 
             gameOverScreen.classList.add('hidden');
             gameOverScreen.style.display = 'none';
+            gameOverScreen.style.opacity = '0';
+            gameOverScreen.style.transform = 'translateY(12px) scale(0.98)';
             // Remove new high score animation if present
             const scoreEl = document.getElementById('finalScore');
             if (scoreEl) scoreEl.classList.remove('new-high-score');
@@ -1939,7 +2088,8 @@
 
         // --- Game Loop ---
         function gameLoop(currentTime = 0) {
-            if (gameover) return;
+            const deathCinematicActive = gameover && deathSlowMoTimer > 0;
+            if (gameover && !deathCinematicActive) return;
 
             // Calculate delta time (time since last frame in seconds)
             if (lastTime === 0) lastTime = currentTime;
@@ -1949,7 +2099,19 @@
             // Cap delta time to prevent huge jumps (e.g., when tab is inactive)
             deltaTime = Math.min(deltaTime, 0.1);
 
-            update();
+            if (!gameover) {
+                update();
+            } else {
+                // Brief cinematic slowdown after collision for better impact.
+                const cinematicTimeScale = 0.28;
+                deathSlowMoTimer = Math.max(0, deathSlowMoTimer - deltaTime);
+                updateBackground(cinematicTimeScale, true);
+                updateParticles(cinematicTimeScale);
+                updateCamera(cinematicTimeScale);
+                birdGlow = Math.max(0, birdGlow - 0.05 * cinematicTimeScale);
+                nearMissFlash = Math.max(0, nearMissFlash - 0.08 * cinematicTimeScale);
+            }
+
             draw();
             frame++;
             requestAnimationFrame(gameLoop);
@@ -1963,16 +2125,32 @@
                 return endGame();
             }
 
-            // Use 60 FPS as baseline (1/60 = 0.0166... seconds per frame)
-            const timeScale = deltaTime > 0 ? deltaTime / (1 / 60) : 1;
+            const timeScale = computeTimeScale(deltaTime);
 
             bird.velocity += GRAVITY * timeScale;
             bird.y += bird.velocity * timeScale;
 
-            if (bird.velocity < 0) {
-                bird.rotation = -0.3;
-            } else {
-                bird.rotation = Math.min(Math.PI / 4, bird.velocity * 0.05);
+            // Smooth visual tilt based on velocity for a polished feel.
+            const targetRotation = bird.velocity < 0
+                ? -0.42
+                : clamp(bird.velocity * 0.06, -0.42, Math.PI / 2.5);
+            bird.rotation += (targetRotation - bird.rotation) * Math.min(1, 0.18 * timeScale);
+
+            bird.idlePhase += 0.08 * timeScale;
+            const targetIdleOffset = Math.abs(bird.velocity) < 0.35
+                ? Math.sin(bird.idlePhase) * 2.2
+                : 0;
+            bird.idleOffset += (targetIdleOffset - bird.idleOffset) * Math.min(1, 0.2 * timeScale);
+
+            bird.scaleX += (1 - bird.scaleX) * Math.min(1, 0.2 * timeScale);
+            bird.scaleY += (1 - bird.scaleY) * Math.min(1, 0.2 * timeScale);
+            birdGlow = Math.max(0, birdGlow - 0.03 * timeScale);
+            nearMissFlash = Math.max(0, nearMissFlash - 0.05 * timeScale);
+
+            trailSpawnTimer += deltaTime;
+            if (trailSpawnTimer >= 0.045) {
+                trailSpawnTimer = 0;
+                createTrailParticle(bird.x, bird.y + bird.idleOffset, bird.velocity);
             }
 
             // Ground collision
@@ -1981,6 +2159,7 @@
                 bird.velocity = 0;
 
                 // Show hit image (if configured)
+                birdHitImage = ensureImageAsset(birdHitImage, BIRD_HIT_IMAGE_PATH);
                 if (birdHitImage) {
                     showHitImage = true;
                     showPassImage = false;
@@ -1994,27 +2173,21 @@
                 bird.velocity = 0;
             }
 
-            // Pipe management
-            // Check if it's time to spawn a new pipe based on elapsed time (not frames)
-            // This ensures consistent pipe spacing across all refresh rates
-            const pipeSpawnTime = PIPE_SPACING / SPEED / 60; // Time in seconds (60 FPS baseline)
-            timeSinceLastPipe += deltaTime;
-
-            if (timeSinceLastPipe >= pipeSpawnTime) {
-                timeSinceLastPipe = 0; // Reset timer 
-                const dynamicPipeGap = Math.max(150, Math.min(PIPE_GAP, canvas.logicalHeight / 3)); // Ensure gap is reasonable
+            // Pipe management (distance-based spawning for consistent spacing).
+            const lastPipe = pipes[pipes.length - 1];
+            if (shouldSpawnPipeDistance(lastPipe?.x, canvas.logicalWidth, PIPE_SPACING_DISTANCE)) {
+                const dynamicPipeGap = Math.max(150, Math.min(PIPE_GAP, canvas.logicalHeight / 3));
                 const minPipeHeight = 50;
-                const maxPipeHeight = canvas.logicalHeight - dynamicPipeGap - minPipeHeight - GROUND_HEIGHT; // Don't let pipes go into ground
+                const maxPipeHeight = canvas.logicalHeight - dynamicPipeGap - minPipeHeight - GROUND_HEIGHT;
 
                 // Use seeded random for consistent pipe heights every game
                 const pipeHeight = seededRandom() * (maxPipeHeight - minPipeHeight) + minPipeHeight;
 
                 pipes.push({
-                    x: canvas.logicalWidth,
+                    x: getNextPipeX(lastPipe?.x, canvas.logicalWidth, PIPE_SPACING_DISTANCE),
                     top: pipeHeight,
                     bottom: pipeHeight + dynamicPipeGap,
-                    passed: false,
-                    isFirstPipe: false
+                    passed: false
                 });
             }
 
@@ -2037,11 +2210,22 @@
                 const topCollision = birdTop < pipe.top;
                 const bottomCollision = birdBottom > pipe.bottom;
 
+                if (horizontalCollision && !topCollision && !bottomCollision && !pipe.nearMissed) {
+                    const topClearance = Math.abs(birdTop - pipe.top);
+                    const bottomClearance = Math.abs(pipe.bottom - birdBottom);
+                    if (Math.min(topClearance, bottomClearance) < 24) {
+                        pipe.nearMissed = true;
+                        nearMissFlash = 1;
+                        createNearMissParticles(bird.x + bird.width * 0.2, bird.y);
+                    }
+                }
+
                 if (horizontalCollision && (topCollision || bottomCollision)) {
                     collisionDetected = true;
                     console.error('🚫 Pipe collision detected!');
 
                     // Show hit image (if configured)
+                    birdHitImage = ensureImageAsset(birdHitImage, BIRD_HIT_IMAGE_PATH);
                     if (birdHitImage) {
                         showHitImage = true;
                         showPassImage = false; // Override pass image if showing
@@ -2060,12 +2244,13 @@
                     }
 
                     score++;
-                    scoreDisplay.textContent = score;
+                    birdGlow = 1;
 
                     // Play pass sound
                     playPassSound();
 
                     // Show pass image temporarily (if configured)
+                    birdPassImage = ensureImageAsset(birdPassImage, BIRD_PASS_IMAGE_PATH);
                     if (birdPassImage) {
                         showPassImage = true;
                         setTimeout(() => {
@@ -2077,10 +2262,16 @@
                     createScoreParticles(canvas.logicalWidth / 2, 60);
 
                     // Score pop animation
-                    scoreDisplay.style.transform = 'translate(-50%, 0) scale(1.3)';
-                    setTimeout(() => {
-                        scoreDisplay.style.transform = 'translate(-50%, 0) scale(1)';
-                    }, 200);
+                    scoreDisplay.classList.remove('score-pop');
+                    void scoreDisplay.offsetWidth;
+                    scoreDisplay.classList.add('score-pop');
+
+                    if (scorePopTimeout) {
+                        clearTimeout(scorePopTimeout);
+                    }
+                    scorePopTimeout = setTimeout(() => {
+                        scoreDisplay.classList.remove('score-pop');
+                    }, 220);
                 }
             });
 
@@ -2092,15 +2283,23 @@
             // Remove off-screen pipes
             pipes = pipes.filter(pipe => pipe.x + PIPE_WIDTH > 0);
 
+            displayedScore += (score - displayedScore) * Math.min(1, 0.2 * timeScale);
+            if (Math.abs(score - displayedScore) < 0.01) {
+                displayedScore = score;
+            }
+            setScoreDisplayText(Math.round(displayedScore));
+
             // Update background and particles
-            updateBackground();
-            updateParticles();
+            updateBackground(timeScale);
+            updateParticles(timeScale);
+            updateCamera(timeScale);
         }
 
         // --- Draw Logic ---
         function draw() {
             const w = canvas.logicalWidth;
             const h = canvas.logicalHeight;
+            const cachedRender = ensureRenderCache(renderCache, ctx, w, h, GROUND_HEIGHT, PIPE_WIDTH);
 
             // Clear any previous shadow settings
             ctx.shadowColor = 'transparent';
@@ -2108,90 +2307,124 @@
             ctx.shadowOffsetX = 0;
             ctx.shadowOffsetY = 0;
 
-            // Draw Sky with gradient
-            const skyGradient = ctx.createLinearGradient(0, 0, 0, h);
-            skyGradient.addColorStop(0, '#87ceeb'); // Light sky blue at top
-            skyGradient.addColorStop(0.7, '#70c5ce'); // Flappy bird sky blue
-            skyGradient.addColorStop(1, '#5fb3c1'); // Slightly darker at bottom
-            ctx.fillStyle = skyGradient;
+            // Draw cached sky gradient.
+            ctx.fillStyle = cachedRender.skyGradient;
             ctx.fillRect(0, 0, w, h);
 
-            // Draw Background elements (clouds, ground)
-            drawBackground(w, h);
+            // Apply camera translation for subtle movement and shake.
+            ctx.save();
+            ctx.translate(camera.x, camera.y);
 
-            // Draw Particles (before pipes so they appear behind)
+            // Draw background elements.
+            drawBackground(w, h, cachedRender);
+
+            // Draw particles before pipes so they appear behind obstacles.
             drawParticles();
 
-            // Draw Pipes
-            pipes.forEach(pipe => {
-                // Create gradient for pipes
-                const pipeGradient = ctx.createLinearGradient(pipe.x, 0, pipe.x + PIPE_WIDTH, 0);
-                pipeGradient.addColorStop(0, '#34d399'); // lighter emerald
-                pipeGradient.addColorStop(0.3, '#10b981'); // emerald-500
-                pipeGradient.addColorStop(0.7, '#059669'); // darker emerald
-                pipeGradient.addColorStop(1, '#047857'); // even darker
-
-                // Add shadow behind pipes
-                ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
-                ctx.shadowBlur = 10;
-                ctx.shadowOffsetX = 4;
-                ctx.shadowOffsetY = 0;
-
-                // Draw top pipe with gradient
-                ctx.fillStyle = pipeGradient;
-                ctx.fillRect(pipe.x, 0, PIPE_WIDTH, pipe.top);
-
-                // Draw bottom pipe with gradient
-                ctx.fillRect(pipe.x, pipe.bottom, PIPE_WIDTH, h - pipe.bottom - GROUND_HEIGHT);
-
-                // Clear shadow for caps
-                ctx.shadowColor = 'transparent';
-
-                // Add caps with gradient
+            // Draw pipes with rounded edges, depth, and subtle horizontal drift.
+            pipes.forEach((pipe, index) => {
+                const renderX = pipe.x + Math.sin((frame * 0.03) + index * 1.2) * 1.5;
+                const pipeRadius = 10;
                 const capHeight = 25;
-                const capOverlap = 5;
+                const capOverlap = 6;
+                const bottomPipeHeight = h - pipe.bottom - GROUND_HEIGHT;
 
-                const capGradient = ctx.createLinearGradient(pipe.x - capOverlap, 0, pipe.x + PIPE_WIDTH + capOverlap, 0);
-                capGradient.addColorStop(0, '#6ee7b7'); // very light emerald
-                capGradient.addColorStop(0.5, '#10b981'); // emerald-500
-                capGradient.addColorStop(1, '#065f46'); // very dark emerald
-
-                // Top pipe cap with shadow
-                ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-                ctx.shadowBlur = 5;
+                // Pipe shadow pass for depth.
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+                ctx.shadowBlur = 7;
+                ctx.shadowOffsetX = 3;
                 ctx.shadowOffsetY = 2;
-                ctx.fillStyle = capGradient;
-                ctx.fillRect(pipe.x - capOverlap, pipe.top - capHeight, PIPE_WIDTH + capOverlap * 2, capHeight);
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+                drawRoundedRect(renderX + 3, 0, PIPE_WIDTH, pipe.top, pipeRadius);
+                drawRoundedRect(renderX + 3, pipe.bottom, PIPE_WIDTH, bottomPipeHeight, pipeRadius);
 
-                // Top cap shine
-                ctx.shadowColor = 'transparent';
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-                ctx.fillRect(pipe.x - capOverlap, pipe.top - capHeight, PIPE_WIDTH + capOverlap * 2, capHeight * 0.3);
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+                ctx.shadowBlur = 4;
+                ctx.shadowOffsetX = 2;
+                ctx.shadowOffsetY = 1;
+                ctx.fillStyle = cachedRender.pipeGradient;
+                drawRoundedRect(renderX, 0, PIPE_WIDTH, pipe.top, pipeRadius);
+                drawRoundedRect(renderX, pipe.bottom, PIPE_WIDTH, bottomPipeHeight, pipeRadius);
 
-                // Bottom pipe cap with shadow
-                ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-                ctx.shadowBlur = 5;
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.28)';
+                ctx.shadowBlur = 3;
+                ctx.shadowOffsetX = 1;
                 ctx.shadowOffsetY = 2;
-                ctx.fillStyle = capGradient;
-                ctx.fillRect(pipe.x - capOverlap, pipe.bottom, PIPE_WIDTH + capOverlap * 2, capHeight);
+                ctx.fillStyle = cachedRender.capGradient;
+                drawRoundedRect(renderX - capOverlap, pipe.top - capHeight, PIPE_WIDTH + capOverlap * 2, capHeight, 8);
+                drawRoundedRect(renderX - capOverlap, pipe.bottom, PIPE_WIDTH + capOverlap * 2, capHeight, 8);
 
-                // Bottom cap shine
+                // Highlights.
                 ctx.shadowColor = 'transparent';
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-                ctx.fillRect(pipe.x - capOverlap, pipe.bottom, PIPE_WIDTH + capOverlap * 2, capHeight * 0.3);
-
-                // Add vertical highlight stripe on pipes
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-                ctx.fillRect(pipe.x + PIPE_WIDTH * 0.15, 0, PIPE_WIDTH * 0.15, pipe.top);
-                ctx.fillRect(pipe.x + PIPE_WIDTH * 0.15, pipe.bottom, PIPE_WIDTH * 0.15, h - pipe.bottom - GROUND_HEIGHT);
+                ctx.fillStyle = 'rgba(255,255,255,0.18)';
+                drawRoundedRect(renderX + PIPE_WIDTH * 0.14, 0, PIPE_WIDTH * 0.14, pipe.top, 6);
+                drawRoundedRect(renderX + PIPE_WIDTH * 0.14, pipe.bottom, PIPE_WIDTH * 0.14, bottomPipeHeight, 6);
+                ctx.fillStyle = 'rgba(255,255,255,0.2)';
+                drawRoundedRect(renderX - capOverlap, pipe.top - capHeight, PIPE_WIDTH + capOverlap * 2, capHeight * 0.32, 8);
+                drawRoundedRect(renderX - capOverlap, pipe.bottom, PIPE_WIDTH + capOverlap * 2, capHeight * 0.32, 8);
             });
 
-            // Draw Bird
+            // Soft bird ground shadow for depth cue.
+            const altitudeRatio = clamp(bird.y / Math.max(1, h - GROUND_HEIGHT), 0, 1);
+            const shadowWidth = bird.width * (0.58 - altitudeRatio * 0.26);
+            const shadowHeight = bird.height * (0.2 - altitudeRatio * 0.08);
+            const shadowAlpha = clamp(0.32 - altitudeRatio * 0.18, 0.08, 0.32);
             ctx.save();
-            ctx.translate(bird.x, bird.y);
+            ctx.globalAlpha = shadowAlpha;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+            ctx.beginPath();
+            ctx.ellipse(bird.x + 8, h - GROUND_HEIGHT + 15, shadowWidth, shadowHeight, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            // Glow pulse around bird when scoring.
+            if (birdGlow > 0.01) {
+                ctx.save();
+                const glowGradient = ctx.createRadialGradient(
+                    bird.x,
+                    bird.y + bird.idleOffset,
+                    bird.width * 0.15,
+                    bird.x,
+                    bird.y + bird.idleOffset,
+                    bird.width * (0.6 + birdGlow * 0.55)
+                );
+                glowGradient.addColorStop(0, `rgba(34, 211, 238, ${0.35 * birdGlow})`);
+                glowGradient.addColorStop(1, 'rgba(34, 211, 238, 0)');
+                ctx.fillStyle = glowGradient;
+                ctx.beginPath();
+                ctx.arc(bird.x, bird.y + bird.idleOffset, bird.width * (0.6 + birdGlow * 0.55), 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // Near-miss visual feedback.
+            if (nearMissFlash > 0.01) {
+                ctx.save();
+                const nearMissGradient = ctx.createRadialGradient(
+                    bird.x,
+                    bird.y,
+                    bird.width * 0.2,
+                    bird.x,
+                    bird.y,
+                    bird.width * 1.2
+                );
+                nearMissGradient.addColorStop(0, `rgba(251, 191, 36, ${0.25 * nearMissFlash})`);
+                nearMissGradient.addColorStop(1, 'rgba(251, 191, 36, 0)');
+                ctx.fillStyle = nearMissGradient;
+                ctx.beginPath();
+                ctx.arc(bird.x, bird.y, bird.width * 1.2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // Draw bird.
+            ctx.save();
+            ctx.translate(bird.x, bird.y + bird.idleOffset);
             ctx.rotate(bird.rotation);
+            ctx.scale(bird.scaleX, bird.scaleY);
 
             // Use hit image if collision occurred (highest priority), pass image if just scored, otherwise normal image
+            birdImage = ensureImageAsset(birdImage, BIRD_IMAGE_PATH);
             let currentBirdImage = birdImage;
             if (showHitImage && birdHitImage) {
                 currentBirdImage = birdHitImage;
@@ -2199,7 +2432,7 @@
                 currentBirdImage = birdPassImage;
             }
 
-            if (currentBirdImage) {
+            if (currentBirdImage && currentBirdImage.complete && currentBirdImage.naturalWidth > 0) {
                 // Calculate scale to fit within BIRD_WIDTH/HEIGHT while maintaining aspect ratio
                 const aspectRatio = currentBirdImage.width / currentBirdImage.height;
                 let drawWidth = BIRD_WIDTH;
@@ -2248,6 +2481,13 @@
             }
 
             ctx.restore();
+
+            // End camera transform scope.
+            ctx.restore();
+
+            // Subtle vignette for cinematic framing.
+            ctx.fillStyle = cachedRender.vignette;
+            ctx.fillRect(0, 0, w, h);
         }
 
         // --- Game State Functions ---
@@ -2255,6 +2495,10 @@
             if (!gameover) {
                 totalFlaps++; // Anti-cheat: Track flaps
                 bird.velocity = FLAP_STRENGTH;
+                bird.scaleX = 1.12;
+                bird.scaleY = 0.88;
+                camera.kick = -1.35;
+                camera.shake = Math.min(0.45, camera.shake + 0.08);
                 playFlapSound();
                 // Create flap particles for visual feedback
                 createFlapParticles(bird.x, bird.y);
@@ -2264,8 +2508,14 @@
         function endGame() {
             if (gameover) return;
             gameover = true;
+            deathSlowMoTimer = 0.3;
+            camera.shake = Math.max(camera.shake, 1.15);
+            camera.kick = -0.6;
+            displayedScore = score;
+            setScoreDisplayText(score);
 
             // Show hit image on game over (if configured)
+            birdHitImage = ensureImageAsset(birdHitImage, BIRD_HIT_IMAGE_PATH);
             if (birdHitImage) {
                 showHitImage = true;
                 showPassImage = false;
@@ -2280,10 +2530,10 @@
             createCollisionParticles(bird.x, bird.y);
 
             // Shake animation on game over
-            canvas.style.animation = 'shake 0.5s';
+            canvas.style.animation = 'shake 0.45s';
             setTimeout(() => {
                 canvas.style.animation = '';
-            }, 500);
+            }, 450);
 
             let isNewHighScore = false;
             if (score > highScore) {
@@ -2305,7 +2555,12 @@
                 playerNameDisplay.classList.add('hidden');
                 gameOverScreen.classList.remove('hidden');
                 gameOverScreen.style.display = 'flex';
-                gameOverScreen.style.animation = 'fadeIn 0.4s ease-out';
+                gameOverScreen.style.opacity = '0';
+                gameOverScreen.style.transform = 'translateY(14px) scale(0.98)';
+                requestAnimationFrame(() => {
+                    gameOverScreen.style.opacity = '1';
+                    gameOverScreen.style.transform = 'translateY(0) scale(1)';
+                });
 
                 // Add new high score glow effect
                 if (isNewHighScore && score > 0) {
@@ -2321,6 +2576,7 @@
         function startGame() {
             initAudio();
             Tone.start();
+            loadDeveloperAssets();
 
             // Stop any lingering sounds
             if (outAudio) {
@@ -2381,18 +2637,11 @@
 
         window.addEventListener('resize', () => {
             // Re-setup the canvas and game state on resize
-            const dpr = window.devicePixelRatio || 1;
-            const rect = canvas.getBoundingClientRect();
-            canvas.width = rect.width * dpr;
-            canvas.height = rect.height * dpr;
-            ctx.scale(dpr, dpr);
-            canvas.logicalWidth = rect.width;
-            canvas.logicalHeight = rect.height;
+            configureCanvasSize();
 
             if (gameover) {
                 // If game is over, just redraw the end screen
                 draw(); // Redraw static elements
-                drawBackground(canvas.logicalWidth, canvas.logicalHeight);
             } else if (!startScreen.classList.contains('hidden')) {
                 // If on start screen, just redraw background
                 initialScreenSetup();
@@ -2405,38 +2654,37 @@
         function initialScreenSetup() {
             // Set title from config
             document.getElementById('gameTitle').textContent = GAME_TITLE;
-            // Load developer-defined assets
-            loadDeveloperAssets();
 
-            const dpr = window.devicePixelRatio || 1;
-            const rect = canvas.getBoundingClientRect();
-            canvas.width = rect.width * dpr;
-            canvas.height = rect.height * dpr;
-            ctx.scale(dpr, dpr);
-            canvas.logicalWidth = rect.width;
-            canvas.logicalHeight = rect.height;
+            configureCanvasSize();
+            const cachedRender = ensureRenderCache(
+                renderCache,
+                ctx,
+                canvas.logicalWidth,
+                canvas.logicalHeight,
+                GROUND_HEIGHT,
+                PIPE_WIDTH
+            );
 
             // Draw sky with gradient
-            const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.logicalHeight);
-            skyGradient.addColorStop(0, '#87ceeb');
-            skyGradient.addColorStop(0.7, '#70c5ce');
-            skyGradient.addColorStop(1, '#5fb3c1');
-            ctx.fillStyle = skyGradient;
+            ctx.fillStyle = cachedRender.skyGradient;
             ctx.fillRect(0, 0, canvas.logicalWidth, canvas.logicalHeight);
 
             initBackground();
-            drawBackground(canvas.logicalWidth, canvas.logicalHeight);
+            drawBackground(canvas.logicalWidth, canvas.logicalHeight, cachedRender);
 
             scoreDisplay.classList.add('hidden');
             playerNameDisplay.classList.add('hidden');
             gameOverScreen.classList.add('hidden');
             gameOverScreen.style.display = 'none';
+            gameOverScreen.style.opacity = '0';
+            gameOverScreen.style.transform = 'translateY(12px) scale(0.98)';
 
             // Check if player has a name, otherwise show name entry
             if (playerName) {
                 currentPlayerName.textContent = playerName;
                 startScreen.classList.remove('hidden');
                 startScreen.style.opacity = '1';
+                startScreen.style.transform = 'translateY(0) scale(1)';
                 nameEntryScreen.classList.add('hidden');
             } else {
                 startScreen.classList.add('hidden');
