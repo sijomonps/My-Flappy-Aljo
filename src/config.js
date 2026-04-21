@@ -1,5 +1,16 @@
 export const GAME_TITLE = "My Flappy Aljo";
 
+// Firebase
+export const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyD-qDhqI3MTJf2eqGsKXae29luSg8UBP1Q",
+    authDomain: "my-flappy-aljo.firebaseapp.com",
+    databaseURL: "https://my-flappy-aljo-default-rtdb.firebaseio.com",
+    projectId: "my-flappy-aljo",
+    storageBucket: "my-flappy-aljo.firebasestorage.app",
+    messagingSenderId: "941796846018",
+    appId: "1:941796846018:web:b8a66260dfff2f80f10e5b"
+};
+
 // Asset paths
 export const BIRD_IMAGE_PATH = "./Tools/face-remo.png";
 export const BIRD_PASS_IMAGE_PATH = "./Tools/dominic.jpeg";
@@ -28,3 +39,7 @@ export const PARALLAX_MID_SPEED = 0.4;
 
 // Systems
 export const MAX_PARTICLES = 150;
+
+// Presence / online indicators
+export const PRESENCE_HEARTBEAT_MS = 30000;
+export const PRESENCE_TIMEOUT_MS = 120000;
