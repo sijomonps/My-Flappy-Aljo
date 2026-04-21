@@ -234,6 +234,58 @@ export function initGame({ firebaseApi = window.firebase, toneApi = window.Tone 
     const particleSystem = new ParticleSystem(MAX_PARTICLES);
     const renderCache = {};
 
+    // Responsive gameplay scaling
+    const BASE_HEIGHT = 700;
+    const BASE_WIDTH = 400;
+    const MOBILE_BREAKPOINT = 768;
+    const MIN_PIPE_GAP = 140;
+    const MAX_PIPE_GAP = 260;
+    const MIN_PIPE_WIDTH = 50;
+    const MAX_PIPE_WIDTH = 110;
+    const MOBILE_GAP_MULTIPLIER = 0.92;
+    const MOBILE_SPEED_MULTIPLIER = 0.9;
+
+    const gameplayScale = {
+        scaleFactor: 1,
+        pipeGap: PIPE_GAP,
+        pipeWidth: PIPE_WIDTH,
+        birdWidth: BIRD_WIDTH,
+        birdHeight: BIRD_HEIGHT,
+        gravity: GRAVITY,
+        flapStrength: FLAP_STRENGTH,
+        speed: SPEED
+    };
+
+    function updateGameplayScale() {
+        const logicalHeight = Math.max(1, canvas.logicalHeight || BASE_HEIGHT);
+        const logicalWidth = Math.max(1, canvas.logicalWidth || BASE_WIDTH);
+        const scaleFactor = Math.min(logicalWidth / BASE_WIDTH, logicalHeight / BASE_HEIGHT);
+        const isMobileViewport = logicalWidth < MOBILE_BREAKPOINT;
+
+        const scaledBirdWidth = BIRD_WIDTH * scaleFactor;
+        const scaledBirdHeight = BIRD_HEIGHT * scaleFactor;
+        let scaledPipeGap = clamp(PIPE_GAP * scaleFactor, MIN_PIPE_GAP, MAX_PIPE_GAP);
+        if (isMobileViewport) {
+            scaledPipeGap = clamp(scaledPipeGap * MOBILE_GAP_MULTIPLIER, MIN_PIPE_GAP, MAX_PIPE_GAP);
+        }
+
+        let scaledPipeWidth = clamp(PIPE_WIDTH * scaleFactor, MIN_PIPE_WIDTH, MAX_PIPE_WIDTH);
+        // Keep pipe width close to ~1.2x bird width when possible within width clamps.
+        const targetPipeWidth = scaledBirdWidth * 1.2;
+        const ratioMin = clamp(targetPipeWidth * 0.9, MIN_PIPE_WIDTH, MAX_PIPE_WIDTH);
+        const ratioMax = clamp(targetPipeWidth * 1.1, ratioMin, MAX_PIPE_WIDTH);
+        scaledPipeWidth = clamp(scaledPipeWidth, ratioMin, ratioMax);
+
+        gameplayScale.scaleFactor = scaleFactor;
+        gameplayScale.pipeGap = scaledPipeGap;
+        gameplayScale.pipeWidth = scaledPipeWidth;
+        gameplayScale.birdWidth = scaledBirdWidth;
+        gameplayScale.birdHeight = scaledBirdHeight;
+        gameplayScale.gravity = GRAVITY * scaleFactor;
+        gameplayScale.flapStrength = FLAP_STRENGTH * scaleFactor;
+        gameplayScale.speed = (SPEED * scaleFactor) * (isMobileViewport ? MOBILE_SPEED_MULTIPLIER : 1);
+    }
+
     // Seeded random for repeatable levels
     let seed = 12345;
 
@@ -702,8 +754,8 @@ export function initGame({ firebaseApi = window.firebase, toneApi = window.Tone 
             ignoreFreeze,
             canvasWidth: canvas.logicalWidth,
             canvasHeight: canvas.logicalHeight,
-            speed: SPEED * timeScale,
-            cloudSpeed: CLOUD_SPEED * timeScale,
+            speed: gameplayScale.speed * timeScale,
+            cloudSpeed: (CLOUD_SPEED * gameplayScale.scaleFactor) * timeScale,
             parallaxFarSpeed: PARALLAX_FAR_SPEED,
             parallaxMidSpeed: PARALLAX_MID_SPEED,
             timeScale,
@@ -724,14 +776,15 @@ export function initGame({ firebaseApi = window.firebase, toneApi = window.Tone 
     function setup() {
         updatePresenceStatus('playing');
         configureCanvasSize(canvas, ctx);
+        updateGameplayScale();
 
         initBackground();
 
         bird = {
             x: canvas.logicalWidth / 3,
             y: canvas.logicalHeight / 2,
-            width: BIRD_WIDTH,
-            height: BIRD_HEIGHT,
+            width: gameplayScale.birdWidth,
+            height: gameplayScale.birdHeight,
             velocity: 0,
             rotation: 0,
             idlePhase: 0,
@@ -773,7 +826,7 @@ export function initGame({ firebaseApi = window.firebase, toneApi = window.Tone 
 
         seed = 12345;
 
-        const dynamicPipeGap = Math.max(150, Math.min(PIPE_GAP, canvas.logicalHeight / 3));
+        const dynamicPipeGap = gameplayScale.pipeGap;
         const minPipeHeight = 50;
         const maxPipeHeight = canvas.logicalHeight - dynamicPipeGap - minPipeHeight - GROUND_HEIGHT;
         const firstPipeHeight = seededRandom() * (maxPipeHeight - minPipeHeight) + minPipeHeight;
@@ -871,7 +924,7 @@ export function initGame({ firebaseApi = window.firebase, toneApi = window.Tone 
 
         const timeScale = computeTimeScale(deltaTime);
 
-        bird.velocity += GRAVITY * timeScale;
+        bird.velocity += gameplayScale.gravity * timeScale;
         bird.y += bird.velocity * timeScale;
 
         const targetRotation = bird.velocity < 0
@@ -916,7 +969,7 @@ export function initGame({ firebaseApi = window.firebase, toneApi = window.Tone 
 
         const lastPipe = pipes[pipes.length - 1];
         if (shouldSpawnPipeDistance(lastPipe?.x, canvas.logicalWidth, PIPE_SPACING_DISTANCE)) {
-            const dynamicPipeGap = Math.max(150, Math.min(PIPE_GAP, canvas.logicalHeight / 3));
+            const dynamicPipeGap = gameplayScale.pipeGap;
             const minPipeHeight = 50;
             const maxPipeHeight = canvas.logicalHeight - dynamicPipeGap - minPipeHeight - GROUND_HEIGHT;
             const pipeHeight = seededRandom() * (maxPipeHeight - minPipeHeight) + minPipeHeight;
@@ -932,14 +985,14 @@ export function initGame({ firebaseApi = window.firebase, toneApi = window.Tone 
         let collisionDetected = false;
 
         pipes.forEach((pipe) => {
-            pipe.x -= SPEED * timeScale;
+            pipe.x -= gameplayScale.speed * timeScale;
 
             const birdLeft = bird.x - bird.width / 2;
             const birdRight = bird.x + bird.width / 2;
             const birdTop = bird.y - bird.height / 2;
             const birdBottom = bird.y + bird.height / 2;
 
-            const pipeRight = pipe.x + PIPE_WIDTH;
+            const pipeRight = pipe.x + gameplayScale.pipeWidth;
             const horizontalCollision = birdRight > pipe.x && birdLeft < pipeRight;
             const topCollision = birdTop < pipe.top;
             const bottomCollision = birdBottom > pipe.bottom;
@@ -1006,7 +1059,7 @@ export function initGame({ firebaseApi = window.firebase, toneApi = window.Tone 
             return endGame();
         }
 
-        pipes = pipes.filter(pipe => pipe.x + PIPE_WIDTH > 0);
+        pipes = pipes.filter(pipe => pipe.x + gameplayScale.pipeWidth > 0);
 
         displayedScore += (score - displayedScore) * Math.min(1, 0.2 * timeScale);
         if (Math.abs(score - displayedScore) < 0.01) {
@@ -1022,7 +1075,7 @@ export function initGame({ firebaseApi = window.firebase, toneApi = window.Tone 
     function draw() {
         const w = canvas.logicalWidth;
         const h = canvas.logicalHeight;
-        const cachedRender = ensureRenderCache(renderCache, ctx, w, h, GROUND_HEIGHT, PIPE_WIDTH);
+        const cachedRender = ensureRenderCache(renderCache, ctx, w, h, GROUND_HEIGHT, gameplayScale.pipeWidth);
 
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
@@ -1044,9 +1097,10 @@ export function initGame({ firebaseApi = window.firebase, toneApi = window.Tone 
 
         pipes.forEach((pipe, index) => {
             const renderX = pipe.x + Math.sin((frame * 0.03) + index * 1.2) * 1.5;
-            const pipeRadius = 10;
-            const capHeight = 25;
-            const capOverlap = 6;
+            const pipeWidth = gameplayScale.pipeWidth;
+            const pipeRadius = clamp(pipeWidth * 0.1, 6, 12);
+            const capHeight = clamp(pipeWidth * 0.25, 16, 30);
+            const capOverlap = clamp(pipeWidth * 0.06, 4, 8);
             const bottomPipeHeight = h - pipe.bottom - GROUND_HEIGHT;
 
             ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
@@ -1054,32 +1108,32 @@ export function initGame({ firebaseApi = window.firebase, toneApi = window.Tone 
             ctx.shadowOffsetX = 3;
             ctx.shadowOffsetY = 2;
             ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
-            drawRoundedRect(ctx, renderX + 3, 0, PIPE_WIDTH, pipe.top, pipeRadius);
-            drawRoundedRect(ctx, renderX + 3, pipe.bottom, PIPE_WIDTH, bottomPipeHeight, pipeRadius);
+            drawRoundedRect(ctx, renderX + 3, 0, pipeWidth, pipe.top, pipeRadius);
+            drawRoundedRect(ctx, renderX + 3, pipe.bottom, pipeWidth, bottomPipeHeight, pipeRadius);
 
             ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
             ctx.shadowBlur = 4;
             ctx.shadowOffsetX = 2;
             ctx.shadowOffsetY = 1;
             ctx.fillStyle = cachedRender.pipeGradient;
-            drawRoundedRect(ctx, renderX, 0, PIPE_WIDTH, pipe.top, pipeRadius);
-            drawRoundedRect(ctx, renderX, pipe.bottom, PIPE_WIDTH, bottomPipeHeight, pipeRadius);
+            drawRoundedRect(ctx, renderX, 0, pipeWidth, pipe.top, pipeRadius);
+            drawRoundedRect(ctx, renderX, pipe.bottom, pipeWidth, bottomPipeHeight, pipeRadius);
 
             ctx.shadowColor = 'rgba(0, 0, 0, 0.28)';
             ctx.shadowBlur = 3;
             ctx.shadowOffsetX = 1;
             ctx.shadowOffsetY = 2;
             ctx.fillStyle = cachedRender.capGradient;
-            drawRoundedRect(ctx, renderX - capOverlap, pipe.top - capHeight, PIPE_WIDTH + capOverlap * 2, capHeight, 8);
-            drawRoundedRect(ctx, renderX - capOverlap, pipe.bottom, PIPE_WIDTH + capOverlap * 2, capHeight, 8);
+            drawRoundedRect(ctx, renderX - capOverlap, pipe.top - capHeight, pipeWidth + capOverlap * 2, capHeight, 8);
+            drawRoundedRect(ctx, renderX - capOverlap, pipe.bottom, pipeWidth + capOverlap * 2, capHeight, 8);
 
             ctx.shadowColor = 'transparent';
             ctx.fillStyle = 'rgba(255,255,255,0.18)';
-            drawRoundedRect(ctx, renderX + PIPE_WIDTH * 0.14, 0, PIPE_WIDTH * 0.14, pipe.top, 6);
-            drawRoundedRect(ctx, renderX + PIPE_WIDTH * 0.14, pipe.bottom, PIPE_WIDTH * 0.14, bottomPipeHeight, 6);
+            drawRoundedRect(ctx, renderX + pipeWidth * 0.14, 0, pipeWidth * 0.14, pipe.top, 6);
+            drawRoundedRect(ctx, renderX + pipeWidth * 0.14, pipe.bottom, pipeWidth * 0.14, bottomPipeHeight, 6);
             ctx.fillStyle = 'rgba(255,255,255,0.2)';
-            drawRoundedRect(ctx, renderX - capOverlap, pipe.top - capHeight, PIPE_WIDTH + capOverlap * 2, capHeight * 0.32, 8);
-            drawRoundedRect(ctx, renderX - capOverlap, pipe.bottom, PIPE_WIDTH + capOverlap * 2, capHeight * 0.32, 8);
+            drawRoundedRect(ctx, renderX - capOverlap, pipe.top - capHeight, pipeWidth + capOverlap * 2, capHeight * 0.32, 8);
+            drawRoundedRect(ctx, renderX - capOverlap, pipe.bottom, pipeWidth + capOverlap * 2, capHeight * 0.32, 8);
         });
 
         const altitudeRatio = clamp(bird.y / Math.max(1, h - GROUND_HEIGHT), 0, 1);
@@ -1147,13 +1201,13 @@ export function initGame({ firebaseApi = window.firebase, toneApi = window.Tone 
 
         if (currentBirdImage && currentBirdImage.complete && currentBirdImage.naturalWidth > 0) {
             const aspectRatio = currentBirdImage.width / currentBirdImage.height;
-            let drawWidth = BIRD_WIDTH;
-            let drawHeight = BIRD_HEIGHT;
+            let drawWidth = bird.width;
+            let drawHeight = bird.height;
 
             if (aspectRatio > 1) {
-                drawHeight = BIRD_WIDTH / aspectRatio;
+                drawHeight = bird.width / aspectRatio;
             } else {
-                drawWidth = BIRD_HEIGHT * aspectRatio;
+                drawWidth = bird.height * aspectRatio;
             }
 
             ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
@@ -1194,7 +1248,7 @@ export function initGame({ firebaseApi = window.firebase, toneApi = window.Tone 
     function flap() {
         if (!gameover) {
             totalFlaps++;
-            bird.velocity = FLAP_STRENGTH;
+            bird.velocity = gameplayScale.flapStrength;
             bird.scaleX = 1.12;
             bird.scaleY = 0.88;
             camera.kick = -1.35;
@@ -1287,13 +1341,14 @@ export function initGame({ firebaseApi = window.firebase, toneApi = window.Tone 
         gameTitle.textContent = GAME_TITLE;
 
         configureCanvasSize(canvas, ctx);
+        updateGameplayScale();
         const cachedRender = ensureRenderCache(
             renderCache,
             ctx,
             canvas.logicalWidth,
             canvas.logicalHeight,
             GROUND_HEIGHT,
-            PIPE_WIDTH
+            gameplayScale.pipeWidth
         );
 
         initBackground();
@@ -1424,6 +1479,7 @@ export function initGame({ firebaseApi = window.firebase, toneApi = window.Tone 
 
     window.addEventListener('resize', () => {
         configureCanvasSize(canvas, ctx);
+        updateGameplayScale();
 
         if (gameover) {
             draw();
